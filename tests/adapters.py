@@ -124,6 +124,8 @@ def run_multihead_self_attention(
     This function should not use RoPE.
     See section 3.2.2 of Vaswani et al., 2017.
 
+    Note: the d_k and d_v here are really d_k * num_heads and d_v * num_heads. See run_transformer_block for more documentation.
+
     Args:
         d_model (int): Dimensionality of the feedforward input and output.
         num_heads (int): Number of heads to use in multi-headed attention.
@@ -161,6 +163,8 @@ def run_multihead_self_attention_with_rope(
     This version of MHA should include RoPE.
     In this case, the RoPE embedding dimension must be the head embedding dimension (d_model // num_heads).
     See section 3.2.2 of Vaswani et al., 2017.
+
+    Note: the d_k and d_v here are really d_k * num_heads and d_v * num_heads. See run_transformer_block for more documentation.
 
     Args:
         d_model (int): Dimensionality of the feedforward input and output.
