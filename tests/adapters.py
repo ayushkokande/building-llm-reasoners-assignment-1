@@ -1,28 +1,21 @@
-# pyright: ignore
 from __future__ import annotations
 
 import os
 from collections.abc import Iterable
-from typing import IO, Any, BinaryIO, Dict, Tuple
-from pathlib import Path
+from typing import IO, Any, BinaryIO
 
-from collections import Counter, defaultdict
-from multiprocessing import Pool
 import numpy.typing as npt
 import torch
 from jaxtyping import Bool, Float, Int
 from torch import Tensor
-import regex as re
-
-from student.pretokenization_example import find_chunk_boundaries
 
 
 def run_linear(
     d_in: int,
     d_out: int,
-    weights: Float[Tensor, "d_out d_in"],  # type: ignore
-    in_features: Float[Tensor, " ... d_in"],  # type: ignore
-) -> Float[Tensor, " ... d_out"]:  # type: ignore
+    weights: Float[Tensor, " d_out d_in"],
+    in_features: Float[Tensor, " ... d_in"],
+) -> Float[Tensor, " ... d_out"]:
     """
     Given the weights of a Linear layer, compute the transformation of a batched input.
 
@@ -42,9 +35,9 @@ def run_linear(
 def run_embedding(
     vocab_size: int,
     d_model: int,
-    weights: Float[Tensor, "vocab_size d_model"],  # type: ignore
-    token_ids: Int[Tensor, " ..."],  # type: ignore
-) -> Float[Tensor, " ... d_model"]:  # type: ignore
+    weights: Float[Tensor, " vocab_size d_model"],
+    token_ids: Int[Tensor, " ..."],
+) -> Float[Tensor, " ... d_model"]:
     """
     Given the weights of an Embedding layer, get the embeddings for a batch of token ids.
 
@@ -64,11 +57,11 @@ def run_embedding(
 def run_swiglu(
     d_model: int,
     d_ff: int,
-    w1_weight: Float[Tensor, "d_ff d_model"],  # type: ignore
-    w2_weight: Float[Tensor, "d_model d_ff"],  # type: ignore
-    w3_weight: Float[Tensor, "d_ff d_model"],  # type: ignore
-    in_features: Float[Tensor, " ... d_model"],  # type: ignore
-) -> Float[Tensor, " ... d_model"]:  # type: ignore
+    w1_weight: Float[Tensor, " d_ff d_model"],
+    w2_weight: Float[Tensor, " d_model d_ff"],
+    w3_weight: Float[Tensor, " d_ff d_model"],
+    in_features: Float[Tensor, " ... d_model"],
+) -> Float[Tensor, " ... d_model"]:
     """Given the weights of a SwiGLU network, return
     the output of your implementation with these weights.
 
@@ -94,11 +87,11 @@ def run_swiglu(
 
 
 def run_scaled_dot_product_attention(
-    Q: Float[Tensor, " ... queries d_k"],  # type: ignore
-    K: Float[Tensor, " ... keys d_k"],  # type: ignore
-    V: Float[Tensor, " ... values d_v"],  # type: ignore
-    mask: Bool[Tensor, " ... queries keys"] | None = None,  # type: ignore
-) -> Float[Tensor, " ... queries d_v"]:  # type: ignore
+    Q: Float[Tensor, " ... queries d_k"],
+    K: Float[Tensor, " ... keys d_k"],
+    V: Float[Tensor, " ... values d_v"],
+    mask: Bool[Tensor, " ... queries keys"] | None = None,
+) -> Float[Tensor, " ... queries d_v"]:
     """
     Given key (K), query (Q), and value (V) tensors, return
     the output of your scaled dot product attention implementation.
@@ -117,12 +110,12 @@ def run_scaled_dot_product_attention(
 def run_multihead_self_attention(
     d_model: int,
     num_heads: int,
-    q_proj_weight: Float[Tensor, "d_k d_in"],  # type: ignore
-    k_proj_weight: Float[Tensor, "d_k d_in"],  # type: ignore
-    v_proj_weight: Float[Tensor, "d_v d_in"],  # type: ignore
-    o_proj_weight: Float[Tensor, "d_model d_v"],  # type: ignore
-    in_features: Float[Tensor, " ... sequence_length d_in"],  # type: ignore
-) -> Float[Tensor, " ... sequence_length d_out"]:  # type: ignore
+    q_proj_weight: Float[Tensor, " d_k d_in"],
+    k_proj_weight: Float[Tensor, " d_k d_in"],
+    v_proj_weight: Float[Tensor, " d_v d_in"],
+    o_proj_weight: Float[Tensor, " d_model d_v"],
+    in_features: Float[Tensor, " ... sequence_length d_in"],
+) -> Float[Tensor, " ... sequence_length d_out"]:
     """
     Given the key, query, and value projection weights of a naive unbatched
     implementation of multi-head attention, return the output of an optimized batched
@@ -155,13 +148,13 @@ def run_multihead_self_attention_with_rope(
     num_heads: int,
     max_seq_len: int,
     theta: float,
-    q_proj_weight: Float[Tensor, "d_k d_in"],  # type: ignore
-    k_proj_weight: Float[Tensor, "d_k d_in"],  # type: ignore
-    v_proj_weight: Float[Tensor, "d_v d_in"],  # type: ignore
-    o_proj_weight: Float[Tensor, "d_model d_v"],  # type: ignore
-    in_features: Float[Tensor, "... sequence_length d_in"],  # type: ignore
-    token_positions: Int[Tensor, "... sequence_length"] | None = None,  # type: ignore
-) -> Float[Tensor, "... sequence_length d_out"]:  # type: ignore
+    q_proj_weight: Float[Tensor, " d_k d_in"],
+    k_proj_weight: Float[Tensor, " d_k d_in"],
+    v_proj_weight: Float[Tensor, " d_v d_in"],
+    o_proj_weight: Float[Tensor, " d_model d_v"],
+    in_features: Float[Tensor, " ... sequence_length d_in"],
+    token_positions: Int[Tensor, " ... sequence_length"] | None = None,
+) -> Float[Tensor, " ... sequence_length d_out"]:
     """
     Given the key, query, and value projection weights of a naive unbatched
     implementation of multi-head attention, return the output of an optimized batched
@@ -196,9 +189,9 @@ def run_rope(
     d_k: int,
     theta: float,
     max_seq_len: int,
-    in_query_or_key: Float[Tensor, " ... sequence_length d_k"],  # type: ignore
-    token_positions: Int[Tensor, " ... sequence_length"],  # type: ignore
-) -> Float[Tensor, " ... sequence_length d_k"]:  # type: ignore
+    in_query_or_key: Float[Tensor, " ... sequence_length d_k"],
+    token_positions: Int[Tensor, " ... sequence_length"],
+) -> Float[Tensor, " ... sequence_length d_k"]:
     """
     Run RoPE for a given input tensor.
 
@@ -221,8 +214,8 @@ def run_transformer_block(
     max_seq_len: int,
     theta: float,
     weights: dict[str, Tensor],
-    in_features: Float[Tensor, "batch sequence_length d_model"],  # type: ignore
-) -> Float[Tensor, "batch sequence_length d_model"]:  # type: ignore
+    in_features: Float[Tensor, " batch sequence_length d_model"],
+) -> Float[Tensor, " batch sequence_length d_model"]:
     """
     Given the weights of a pre-norm Transformer block and input features,
     return the output of running the Transformer block on the input features.
@@ -296,8 +289,8 @@ def run_transformer_lm(
     d_ff: int,
     rope_theta: float,
     weights: dict[str, Tensor],
-    in_indices: Int[Tensor, "batch_size sequence_length"],  # type: ignore
-) -> Float[Tensor, "batch_size sequence_length vocab_size"]:  # type: ignore
+    in_indices: Int[Tensor, " batch_size sequence_length"],
+) -> Float[Tensor, " batch_size sequence_length vocab_size"]:
     """Given the weights of a Transformer language model and input indices,
     return the output of running a forward pass on the input indices.
 
@@ -311,7 +304,7 @@ def run_transformer_lm(
         num_heads (int): Number of heads to use in multi-headed attention. `d_model` must be
             evenly divisible by `num_heads`.
         d_ff (int): Dimensionality of the feed-forward inner layer (section 3.3).
-        rope_theta (float): The RoPE $\\Theta$ parameter.
+        rope_theta (float): The RoPE $\Theta$ parameter.
         weights (dict[str, Tensor]):
             State dict of our reference implementation. {num_layers} refers to an
             integer between `0` and `num_layers - 1` (the layer index).
@@ -372,9 +365,9 @@ def run_transformer_lm(
 def run_rmsnorm(
     d_model: int,
     eps: float,
-    weights: Float[Tensor, "d_model"],  # type: ignore
-    in_features: Float[Tensor, " ... d_model"],  # type: ignore
-) -> Float[Tensor, " ... d_model"]:  # type: ignore
+    weights: Float[Tensor, " d_model"],
+    in_features: Float[Tensor, " ... d_model"],
+) -> Float[Tensor, " ... d_model"]:
     """Given the weights of a RMSNorm affine transform,
     return the output of running RMSNorm on the input features.
 
@@ -392,7 +385,7 @@ def run_rmsnorm(
     raise NotImplementedError
 
 
-def run_silu(in_features: Float[Tensor, " ..."]) -> Float[Tensor, " ..."]:  # type: ignore
+def run_silu(in_features: Float[Tensor, " ..."]) -> Float[Tensor, " ..."]:
     """Given a tensor of inputs, return the output of applying SiLU
     to each element.
 
@@ -429,7 +422,7 @@ def run_get_batch(
     raise NotImplementedError
 
 
-def run_softmax(in_features: Float[Tensor, " ..."], dim: int) -> Float[Tensor, " ..."]:  # type: ignore
+def run_softmax(in_features: Float[Tensor, " ..."], dim: int) -> Float[Tensor, " ..."]:
     """
     Given a tensor of inputs, return the output of softmaxing the given `dim`
     of the input.
@@ -446,8 +439,8 @@ def run_softmax(in_features: Float[Tensor, " ..."], dim: int) -> Float[Tensor, "
 
 
 def run_cross_entropy(
-    inputs: Float[Tensor, "batch_size vocab_size"], targets: Int[Tensor, "batch_size"]  # type: ignore
-) -> Float[Tensor, ""]:  # type: ignore
+    inputs: Float[Tensor, " batch_size vocab_size"], targets: Int[Tensor, " batch_size"]
+) -> Float[Tensor, ""]:
     """Given a tensor of inputs and targets, compute the average cross-entropy
     loss across examples.
 
@@ -572,204 +565,6 @@ def get_tokenizer(
     """
     raise NotImplementedError
 
-class RegexSplitter:
-    """
-    Helper used by `pre_tokenize` to pre-tokenize a single byte range of a file.
-
-    It:
-    - reads [start, end) from `filepath` in binary
-    - decodes to UTF-8 text (ignoring errors)
-    - splits on special tokens (so merges never cross them)
-    - applies the GPT-2 PAT regex to get pre-tokens
-    - returns a dict mapping pre-token strings -> counts
-    """
-
-    def __init__(self, pat: str, special_tokens: list[str]) -> None:
-        self.special_tokens = set(special_tokens)
-        self.token_re = re.compile(pat) 
-    
-    def seek_and_split(self, filepath: str, start: int, end: int) -> dict[str, int]:
-        with open(filepath, "rb") as f:
-            f.seek(start)
-            data = f.read(end - start)
-
-        text = data.decode("utf-8")
-
-        # Split on special tokens, keeping the tokens themselves as separate parts
-        parts = _split_on_special_tokens(text, list(self.special_tokens)) if self.special_tokens else [text]
-
-        counts: dict[str, int] = {} #dictionary is essentially a pretoken string to count mapping
-        for part in parts:
-            #skip special tokens
-            if part in self.special_tokens:
-                continue
-
-            for m in self.token_re.finditer(part): #find all matches according to the
-                s = m.group(0) #get the match
-                counts[s] = counts.get(s, 0) + 1 #add to map if not already in map
-
-        return counts
-
-
-#Returns pretoken frequencies for all of the chunks in the file
-def pre_tokenize(
-    splitter: RegexSplitter,
-    filepath: str,
-    num_processes: int = 1,
-    special_token: str = "<|endoftext|>",
-) -> dict[str, int]:
-    """
-    Run pre-tokenization algorithm using chunk boundaries.
-
-    1. Splits file by byte ranges separated by the given `special_token`
-    2. Each chunk is processed by `splitter.seek_and_split` (optionally in parallel)
-    """
-    handle: BinaryIO = Path(filepath).open("rb")
-    boundaries = find_chunk_boundaries(handle, max(num_processes * 4, 1), special_token.encode("utf-8"))
-    handle.close()
-
-
-    args = [(filepath, start, end) for start, end in zip(boundaries[:-1], boundaries[1:])]
-    pre_token_counts: dict[str, int] = {}
-
-
-    with Pool(num_processes) as p:
-        results = p.starmap(splitter.seek_and_split, args)
-    for pre_token_counts_sample in results:
-        for k, v in pre_token_counts_sample.items():
-            pre_token_counts[k] = pre_token_counts.get(k, 0) + v
-
-    return pre_token_counts
-
-
-Word = Tuple[int, ...]
-Pair = Tuple[int, int]
-
-def _iter_pairs(word: Word):
-    for i in range(len(word) - 1):
-        yield (word[i], word[i + 1])
-
-def build_pair_indexes(word_freqs: Dict[Word, int]):
-    pair_counts: Counter[Pair] = Counter() #counts of each pair
-    pair_to_words: Dict[Pair,set[Word]] = defaultdict(set) #pair to words mapping is basically words which contain the pair.
-
-    for w, freq in word_freqs.items():
-        if len(w) < 2:
-            continue #skip words less than 2 bytes
-        for p in _iter_pairs(w):
-            pair_counts[p] += freq #increment the count of the pair
-            pair_to_words[p].add(w) #add the word to the pair to words mapping
-
-    return pair_counts, pair_to_words
-
-
-def _merge_in_word(word: Word, pair: Pair, new_id: int) -> Word:
-    a, b = pair
-    out: list[int] =  [] 
-    i = 0
-    n = len(word)
-    while i < n:
-        if i < n - 1 and word[i] == a and word[i + 1] == b:
-            out.append(new_id)   # NOTE: new_token is bytes (can be multi-byte), not "a single byte"
-            i += 2
-        else:
-            out.append(word[i]) 
-            i += 1
-    return tuple(out)
-
-def merge_pair_incremental(
-    word_freqs: Dict[Word, int],
-    pair_counts: Counter[Pair],
-    pair_to_words: Dict[Pair, set[Word]],
-    pair: Pair,
-    new_id: int,
-) -> None:
-    """
-    In-place update:
-      - word_freqs
-      - pair_counts
-      - pair_to_words
-    for merging `pair` -> `new_token`.
-
-    Only updates words that actually contain `pair` (via pair_to_words[pair]).
-    """
-    affected = pair_to_words.get(pair) #get the words that contain the pair
-
-    # Copy because we will mutate maps/sets as we go
-    affected_words = list(affected) #convert the set to a list
-
-    for w in affected_words:
-        freq = word_freqs[w]
-        if len(w) >= 2:
-            for p in _iter_pairs(w):
-                pair_counts[p] -= freq
-                s = pair_to_words.get(p)
-                if s is not None:
-                    s.discard(w)
-                    if not s:
-                        del pair_to_words[p]
-                if pair_counts[p] == 0:
-                    del pair_counts[p]
-
-
-        new_w = _merge_in_word(w, pair, new_id)
-
-        del word_freqs[w]
-        word_freqs[new_w] = word_freqs.get(new_w, 0) + freq
-
-        if len(new_w) >= 2:
-            for p in _iter_pairs(new_w):
-                pair_counts[p] += freq
-                pair_to_words.setdefault(p, set()).add(new_w)
-    
-    pair_counts.pop(pair, None)
-
-
-def pretokenize(
-    filepath: str | os.PathLike,
-    special_tokens: list[str],
-    pat: str,
-    num_processes: int = 1,
-) -> Counter[tuple[bytes, ...]]:
-    """
-    Pretokenize the file by using `find_chunk_boundaries` + `pre_tokenize`,
-    then convert pre-token strings to tuples of single-byte `bytes` as expected
-    by the BPE training loop.
-    """
-    splitter = RegexSplitter(pat=pat, special_tokens=special_tokens)
-
-    pre_token_counts = pre_tokenize(
-        splitter=splitter,
-        filepath=str(filepath),
-        num_processes=num_processes,
-        special_token=special_tokens[0] if special_tokens else "<|endoftext|>",
-    )
-    #converts pretoken string counts to a tuple of byte ids to count mappings word -> [(id1, id2, id3, id4)]
-    counts: Counter[tuple[bytes, ...]] = Counter()
-    for s, cnt in pre_token_counts.items():
-        key = tuple(bytes([b]) for b in s.encode("utf-8"))
-        counts[key] += cnt
-
-    return counts
-
-def _split_on_special_tokens(text: str, special_tokens: list[str]) -> list[str]:
-    """
-    Split `text` on each special token, **keeping** the special tokens themselves
-    as separate elements in the result.
-
-    Example:
-        text = "[Doc1]<|endoftext|>[Doc2]"
-        special_tokens = ["<|endoftext|>"]
-        -> ["[Doc1]", "<|endoftext|>", "[Doc2]"]
-    """
-    if not special_tokens:
-        return [text]
-
-    pattern = f"({'|'.join(map(re.escape, special_tokens))})"
-    return [p for p in re.split(pattern, text) if p]
-
-PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
-
 
 def run_train_bpe(
     input_path: str | os.PathLike,
@@ -779,6 +574,7 @@ def run_train_bpe(
 ) -> tuple[dict[int, bytes], list[tuple[bytes, bytes]]]:
     """Given the path to an input corpus, run train a BPE tokenizer and
     output its vocabulary and merges.
+
     Args:
         input_path (str | os.PathLike): Path to BPE tokenizer training data.
         vocab_size (int): Total number of items in the tokenizer's vocabulary (including special tokens).
@@ -797,44 +593,4 @@ def run_train_bpe(
                 representing that <token1> was merged with <token2>.
                 Merges are ordered by order of creation.
     """
-    input_file_path = Path(input_path)
-
-    vocab: dict[int, bytes] = {} 
-    next_id = 0
-    for i in range(256):
-        vocab[next_id] = bytes([i])
-        next_id += 1
-
-    num_processes = kwargs.get("num_processes", 8)
-
-    word_freqs = pretokenize(
-        filepath=input_file_path,
-        special_tokens=special_tokens,
-        pat=PAT,
-        num_processes=num_processes,
-    )
-
-    for token in special_tokens:
-        vocab[next_id] = token.encode("utf-8")
-        next_id += 1
-
-    pair_counts, pair_to_words = build_pair_indexes(word_freqs)
-    num_merges = vocab_size - len(vocab) 
-    merges: list[tuple[bytes, bytes]] = [] 
-
-    for _ in range(num_merges):
-        if not pair_counts: #if no pairs are left, break
-            break
-
-        best_pair = max(pair_counts.items(), key=lambda x: (x[1], x[0]))[0] 
-        a, b = best_pair
-        merges.append((a, b))
-
-        new_token = a + b
-        vocab[next_id] = new_token
-        next_id += 1
-
-        merge_pair_incremental(word_freqs, pair_counts, pair_to_words, best_pair, new_token)
-    
-    return vocab, merges
-
+    raise NotImplementedError
