@@ -3,10 +3,8 @@ from __future__ import annotations
 import json
 import os
 import resource
-import sys
 
 import psutil
-import pytest
 import tiktoken
 
 from .adapters import get_tokenizer

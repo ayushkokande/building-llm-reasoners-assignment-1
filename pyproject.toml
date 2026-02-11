@@ -50,3 +50,11 @@ extend-select = ["UP"]
 ignore = [
     "F722"
 ]
+
+[tool.basedpyright]
+reportSyntaxError = "none"
+reportGeneralTypeIssues = "none"
+reportInvalidTypeVarUse = "none"
+reportMissingImports = "warning"
+typeCheckingMode = "off"
+exclude = ["**/tests/adapters.py"]
