@@ -199,7 +199,53 @@ def run_multihead_self_attention(
         Float[Tensor, " ... sequence_length d_out"]: Tensor with the output of running your optimized, batched multi-headed attention
         implementation with the given QKV projection weights and input features.
     """
-    raise NotImplementedError
+    *batch_dims, seq_len, d_in = in_features.shape
+
+    d_k_total = q_proj_weight.shape[0]
+    d_v_total = v_proj_weight.shape[0]
+
+    assert d_k_total % num_heads == 0, "d_k_total must be divisible by num_heads"
+    assert d_v_total % num_heads == 0, "d_v_total must be divisible by num_heads"
+
+    head_dim_k = d_k_total // num_heads
+    head_dim_v = d_v_total // num_heads
+
+    # ---- Single matmul for QKV projections ----
+    # (d_k_total + d_k_total + d_v_total, d_in)
+    qkv_weight = torch.cat([q_proj_weight, k_proj_weight, v_proj_weight], dim=0)
+
+    # (..., seq_len, d_k_total + d_k_total + d_v_total)
+    qkv = in_features @ qkv_weight.transpose(-1, -2)
+
+    Q, K, V = torch.split(qkv, [d_k_total, d_k_total, d_v_total], dim=-1)
+
+    # ---- Reshape into heads ----
+    # (..., seq_len, heads, head_dim) -> (..., heads, seq_len, head_dim)
+    Q = Q.reshape(*batch_dims, seq_len, num_heads, head_dim_k).transpose(-3, -2)
+    K = K.reshape(*batch_dims, seq_len, num_heads, head_dim_k).transpose(-3, -2)
+    V = V.reshape(*batch_dims, seq_len, num_heads, head_dim_v).transpose(-3, -2)
+
+    # ---- Scaled dot-product attention with causal mask ----
+    scale = 1.0 / math.sqrt(head_dim_k)
+    # (..., heads, seq_len, seq_len)
+    scores = torch.matmul(Q, K.transpose(-1, -2)) * scale
+
+    # causal mask: allow attending to self and past positions
+    causal = torch.tril(torch.ones(seq_len, seq_len, device=scores.device, dtype=torch.bool))
+    scores = scores.masked_fill(~causal, float("-inf"))
+
+    probs = torch.softmax(scores, dim=-1)
+
+    # (..., heads, seq_len, head_dim_v)
+    ctx = torch.matmul(probs, V)
+
+    # ---- Combine heads and output projection ----
+    # (..., seq_len, heads, head_dim_v) -> (..., seq_len, d_v_total)
+    ctx = ctx.transpose(-3, -2).reshape(*batch_dims, seq_len, d_v_total)
+
+    # (..., seq_len, d_model)
+    out = ctx @ o_proj_weight.transpose(-1, -2)
+    return out
 
 
 def run_multihead_self_attention_with_rope(
