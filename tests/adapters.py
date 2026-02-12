@@ -422,7 +422,7 @@ def run_transformer_block(
         return run_linear(d_in, d_out, W_out_in, x)
 
     x = in_features
-    x1 = run_rmsnorm(d_model, 1e-6, weights["ln1.weight"], x)
+    x1 = run_rmsnorm(d_model, 1e-5, weights["ln1.weight"], x)
 
     Wq = weights["attn.q_proj.weight"]
     Wk = weights["attn.k_proj.weight"]
@@ -466,7 +466,7 @@ def run_transformer_block(
     y = x + attn_out
 
 
-    y1 = run_rmsnorm(d_model, 1e-6, weights["ln2.weight"], y)
+    y1 = run_rmsnorm(d_model, 1e-5, weights["ln2.weight"], y)
 
     W1 = weights["ffn.w1.weight"]
     W2 = weights["ffn.w2.weight"]
@@ -581,7 +581,7 @@ def run_transformer_lm(
             in_features=x,
         )
 
-    x = run_rmsnorm(d_model, 1e-6, weights["ln_final.weight"], x)
+    x = run_rmsnorm(d_model, 1e-5, weights["ln_final.weight"], x)
 
     logits = run_linear(
         d_in=d_model,
