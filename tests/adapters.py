@@ -8,6 +8,7 @@ from pathlib import Path
 
 from collections import Counter, defaultdict
 from multiprocessing import Pool
+import numpy as np
 import numpy.typing as npt
 import torch, math, torch.nn.functional as F
 from jaxtyping import Bool, Float, Int
@@ -625,7 +626,16 @@ def run_get_batch(
         is the sampled input sequences, and the second tuple item is the corresponding
         language modeling labels.
     """
-    raise NotImplementedError
+    n = len(dataset)
+    max_start = n - context_length
+    starts = np.random.randint(0, max_start, size=batch_size)
+
+    x = np.stack([dataset[s : s + context_length] for s in starts])
+    y = np.stack([dataset[s + 1 : s + context_length + 1] for s in starts])
+
+    x_t = torch.tensor(x, dtype=torch.long, device=device)
+    y_t = torch.tensor(y, dtype=torch.long, device=device)
+    return x_t, y_t
 
 
 def run_softmax(in_features: Float[Tensor, " ..."], dim: int) -> Float[Tensor, " ..."]:  # type: ignore
@@ -807,7 +817,12 @@ def run_save_checkpoint(
             we've completed.
         out (str | os.PathLike | BinaryIO | IO[bytes]): Path or file-like object to serialize the model, optimizer, and iteration to.
     """
-    raise NotImplementedError
+    checkpoint = {
+        "model": model.state_dict(),
+        "optimizer": optimizer.state_dict(),
+        "iteration": iteration,
+    }
+    torch.save(checkpoint, out)
 
 
 def run_load_checkpoint(
@@ -828,7 +843,10 @@ def run_load_checkpoint(
     Returns:
         int: the previously-serialized number of iterations.
     """
-    raise NotImplementedError
+    checkpoint = torch.load(src, map_location="cpu")
+    model.load_state_dict(checkpoint["model"])
+    optimizer.load_state_dict(checkpoint["optimizer"])
+    return checkpoint["iteration"]
 
 
 def get_tokenizer(
