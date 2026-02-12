@@ -17,6 +17,7 @@ import regex as re
 from student.pretokenization_example import find_chunk_boundaries
 from student.tokenizer import Tokenizer
 from student.regexsplitter import RegexSplitter
+from student.linear import Linear
 
 
 def run_linear(
@@ -37,8 +38,10 @@ def run_linear(
     Returns:
         Float[Tensor, "... d_out"]: The transformed output of your linear module.
     """
-
-    raise NotImplementedError
+    
+    linear = Linear(in_features=d_in, out_features=d_out, device=weights.device, dtype=weights.dtype)
+    linear.load_state_dict({"W": weights})
+    return linear(in_features)
 
 
 def run_embedding(
