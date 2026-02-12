@@ -15,6 +15,8 @@ from torch import Tensor
 import regex as re
 
 from student.pretokenization_example import find_chunk_boundaries
+from student.tokenizer import Tokenizer
+from student.regexsplitter import RegexSplitter
 
 
 def run_linear(
@@ -570,45 +572,7 @@ def get_tokenizer(
     Returns:
         A BPE tokenizer that uses the provided vocab, merges, and special tokens.
     """
-    raise NotImplementedError
-
-class RegexSplitter:
-    """
-    Helper used by `pre_tokenize` to pre-tokenize a single byte range of a file.
-
-    It:
-    - reads [start, end) from `filepath` in binary
-    - decodes to UTF-8 text (ignoring errors)
-    - splits on special tokens (so merges never cross them)
-    - applies the GPT-2 PAT regex to get pre-tokens
-    - returns a dict mapping pre-token strings -> counts
-    """
-
-    def __init__(self, pat: str, special_tokens: list[str]) -> None:
-        self.special_tokens = set(special_tokens)
-        self.token_re = re.compile(pat) 
-    
-    def seek_and_split(self, filepath: str, start: int, end: int) -> dict[str, int]:
-        with open(filepath, "rb") as f:
-            f.seek(start)
-            data = f.read(end - start)
-
-        text = data.decode("utf-8")
-
-        # Split on special tokens, keeping the tokens themselves as separate parts
-        parts = _split_on_special_tokens(text, list(self.special_tokens)) if self.special_tokens else [text]
-
-        counts: dict[str, int] = {} #dictionary is essentially a pretoken string to count mapping
-        for part in parts:
-            #skip special tokens
-            if part in self.special_tokens:
-                continue
-
-            for m in self.token_re.finditer(part): #find all matches according to the
-                s = m.group(0) #get the match
-                counts[s] = counts.get(s, 0) + 1 #add to map if not already in map
-
-        return counts
+    return Tokenizer(vocab=vocab, merges=merges, special_tokens=special_tokens)
 
 
 #Returns pretoken frequencies for all of the chunks in the file
@@ -751,22 +715,6 @@ def pretokenize(
         counts[key] += cnt
 
     return counts
-
-def _split_on_special_tokens(text: str, special_tokens: list[str]) -> list[str]:
-    """
-    Split `text` on each special token, **keeping** the special tokens themselves
-    as separate elements in the result.
-
-    Example:
-        text = "[Doc1]<|endoftext|>[Doc2]"
-        special_tokens = ["<|endoftext|>"]
-        -> ["[Doc1]", "<|endoftext|>", "[Doc2]"]
-    """
-    if not special_tokens:
-        return [text]
-
-    pattern = f"({'|'.join(map(re.escape, special_tokens))})"
-    return [p for p in re.split(pattern, text) if p]
 
 PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
 
