@@ -7,9 +7,8 @@ import torch.nn.init as init
 
 class Embedding(nn.Module):
     """
-    Simple embedding layer (lookup table) without using nn.Embedding.
-
-    - num_embeddings: vocabulary size
+    Simple embedding layer (lookup table) 
+    - num_embeddings: vocabulary size (number of embeddings in the vocabulary)
     - embedding_dim:  embedding size (d_model), last dimension of the weight matrix
 
     Weight shape: (num_embeddings, embedding_dim)

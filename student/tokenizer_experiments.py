@@ -133,19 +133,20 @@ def encode_training_and_development_data():
     - Dev:   TinyStoriesV2-GPT4-valid.txt
     - Output: data/tinystories_train_ids.npy, data/tinystories_valid_ids.npy
     """
-    tokenizer = load_tokenizer()
 
+    tokenizer = load_tokenizer()
+    print("Tokenizer loaded")
     # Reconstruct repo_root and data paths (mirrors _resolve_paths logic).
     script_dir = Path(__file__).resolve().parent
     repo_root = script_dir.parent
-
+    print("Starting to encode training and development data...")
     if (repo_root.parent / "data" / "TinyStoriesV2-GPT4-train.txt").exists():
-        train_path = repo_root.parent / "data" / "TinyStoriesV2-GPT4-train.txt"
-        valid_path = repo_root.parent / "data" / "TinyStoriesV2-GPT4-valid.txt"
+        train_path = repo_root.parent / "data" / "/Users/kokande/Desktop/Semester 2/Building LLM Reasoners/nyu-llm-reasoners-a1/tests/fixtures/tinystories_sample.txt"
+        valid_path = repo_root.parent / "data" / "/Users/kokande/Desktop/Semester 2/Building LLM Reasoners/nyu-llm-reasoners-a1/tests/fixtures/tinystories_sample.txt"
         out_dir = repo_root.parent / "data"
     else:
-        train_path = repo_root / "data" / "TinyStoriesV2-GPT4-train.txt"
-        valid_path = repo_root / "data" / "TinyStoriesV2-GPT4-valid.txt"
+        train_path = repo_root / "data" / "/Users/kokande/Desktop/Semester 2/Building LLM Reasoners/nyu-llm-reasoners-a1/tests/fixtures/tinystories_sample.txt"
+        valid_path = repo_root / "data" / "/Users/kokande/Desktop/Semester 2/Building LLM Reasoners/nyu-llm-reasoners-a1/tests/fixtures/tinystories_sample.txt"
         out_dir = repo_root / "data"
 
     out_dir.mkdir(exist_ok=True)
