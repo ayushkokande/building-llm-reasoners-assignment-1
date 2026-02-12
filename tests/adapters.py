@@ -9,7 +9,7 @@ from pathlib import Path
 from collections import Counter, defaultdict
 from multiprocessing import Pool
 import numpy.typing as npt
-import torch
+import torch, math
 from jaxtyping import Bool, Float, Int
 from torch import Tensor
 import regex as re
@@ -21,6 +21,7 @@ from student.embedding import Embedding
 from student.rmsnorm import RMSNorm
 from student.linear import Linear
 from student.swiglu import SwiGLU
+from student.rope import RotaryPositionalEmbedding
 
 
 def run_linear(
@@ -138,7 +139,31 @@ def run_scaled_dot_product_attention(
     Returns:
         Float[Tensor, " ... queries d_v"]: Output of SDPA
     """
-    raise NotImplementedError
+    d_k = Q.shape[-1]
+    scale = 1.0 / math.sqrt(d_k)
+
+    # (..., queries, keys)
+    scores = torch.matmul(Q, K.transpose(-1, -2)) * scale
+
+    if mask is not None:
+        # Make sure mask is broadcastable to scores
+        # (this works if mask is (queries, keys) or (..., queries, keys))
+        scores = scores.masked_fill(~mask, float("-inf"))
+
+    probs = torch.softmax(scores, dim=-1)
+
+    if mask is not None:
+        # Enforce exact zeros on masked-out positions,
+        # then renormalize over allowed positions so rows sum to 1.
+        probs = probs.masked_fill(~mask, 0.0)
+        denom = probs.sum(dim=-1, keepdim=True)  # (..., queries, 1)
+
+        # Avoid divide-by-zero if a row is fully masked (should be rare, but safe)
+        probs = torch.where(denom > 0, probs / denom, probs)
+
+    # (..., queries, d_v)
+    out = torch.matmul(probs, V)
+    return out
 
 
 def run_multihead_self_attention(
@@ -238,7 +263,14 @@ def run_rope(
     Returns:
         Float[Tensor, " ... sequence_length d_k"]: Tensor with RoPEd input.
     """
-    raise NotImplementedError
+    rope = RotaryPositionalEmbedding(
+        theta=theta,
+        d_k=d_k,
+        max_seq_len=max_seq_len,
+        device=in_query_or_key.device,
+    )
+    
+    return rope(in_query_or_key, token_positions)
 
 
 def run_transformer_block(
@@ -481,7 +513,18 @@ def run_softmax(in_features: Float[Tensor, " ..."], dim: int) -> Float[Tensor, "
         Float[Tensor, "..."]: Tensor of with the same shape as `in_features` with the output of
         softmax normalizing the specified `dim`.
     """
-    raise NotImplementedError
+    # Numerical stability: subtract max along the specified dimension
+    # This prevents overflow in exp() while preserving the softmax result
+    x_max = in_features.max(dim=dim, keepdim=True)[0]
+    x_shifted = in_features - x_max
+    
+    # Apply exp
+    exp_x = torch.exp(x_shifted)
+    
+    # Normalize: divide by sum along the specified dimension
+    sum_exp = exp_x.sum(dim=dim, keepdim=True)
+    
+    return exp_x / sum_exp
 
 
 def run_cross_entropy(

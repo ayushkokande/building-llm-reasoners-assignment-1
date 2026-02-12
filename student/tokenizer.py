@@ -93,13 +93,11 @@ class Tokenizer:
         Encode input text into token IDs.   
         """
         out: list[int] = []
-
         parts = self._splitter.split_on_special_tokens(text)
         for part in parts:
             if part in self.special_tokens:
                 out.append(self._bytes_to_id[part.encode("utf-8")])
                 continue
-
             for m in self._token_re.finditer(part):
                 piece = m.group(0)
                 piece_bytes = piece.encode("utf-8")
