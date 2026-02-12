@@ -9,7 +9,7 @@ from pathlib import Path
 from collections import Counter, defaultdict
 from multiprocessing import Pool
 import numpy.typing as npt
-import torch, math
+import torch, math, torch.nn.functional as F
 from jaxtyping import Bool, Float, Int
 from torch import Tensor
 import regex as re
@@ -199,7 +199,7 @@ def run_multihead_self_attention(
         Float[Tensor, " ... sequence_length d_out"]: Tensor with the output of running your optimized, batched multi-headed attention
         implementation with the given QKV projection weights and input features.
     """
-    *batch_dims, seq_len, d_in = in_features.shape
+    *batch_dims, seq_len, _ = in_features.shape
 
     d_k_total = q_proj_weight.shape[0]
     d_v_total = v_proj_weight.shape[0]
@@ -210,40 +210,28 @@ def run_multihead_self_attention(
     head_dim_k = d_k_total // num_heads
     head_dim_v = d_v_total // num_heads
 
-    # ---- Single matmul for QKV projections ----
-    # (d_k_total + d_k_total + d_v_total, d_in)
     qkv_weight = torch.cat([q_proj_weight, k_proj_weight, v_proj_weight], dim=0)
 
-    # (..., seq_len, d_k_total + d_k_total + d_v_total)
     qkv = in_features @ qkv_weight.transpose(-1, -2)
 
     Q, K, V = torch.split(qkv, [d_k_total, d_k_total, d_v_total], dim=-1)
 
-    # ---- Reshape into heads ----
-    # (..., seq_len, heads, head_dim) -> (..., heads, seq_len, head_dim)
     Q = Q.reshape(*batch_dims, seq_len, num_heads, head_dim_k).transpose(-3, -2)
     K = K.reshape(*batch_dims, seq_len, num_heads, head_dim_k).transpose(-3, -2)
     V = V.reshape(*batch_dims, seq_len, num_heads, head_dim_v).transpose(-3, -2)
 
-    # ---- Scaled dot-product attention with causal mask ----
     scale = 1.0 / math.sqrt(head_dim_k)
-    # (..., heads, seq_len, seq_len)
     scores = torch.matmul(Q, K.transpose(-1, -2)) * scale
 
-    # causal mask: allow attending to self and past positions
     causal = torch.tril(torch.ones(seq_len, seq_len, device=scores.device, dtype=torch.bool))
     scores = scores.masked_fill(~causal, float("-inf"))
 
     probs = torch.softmax(scores, dim=-1)
 
-    # (..., heads, seq_len, head_dim_v)
     ctx = torch.matmul(probs, V)
 
-    # ---- Combine heads and output projection ----
-    # (..., seq_len, heads, head_dim_v) -> (..., seq_len, d_v_total)
     ctx = ctx.transpose(-3, -2).reshape(*batch_dims, seq_len, d_v_total)
 
-    # (..., seq_len, d_model)
     out = ctx @ o_proj_weight.transpose(-1, -2)
     return out
 
@@ -389,7 +377,69 @@ def run_transformer_block(
         Float[Tensor, "batch sequence_length d_model"] Tensor with the output of
         running the Transformer block on the input features while using RoPE.
     """
-    raise NotImplementedError
+    batch, seq_len, _ = in_features.shape
+    assert d_model % num_heads == 0, "d_model must be divisible by num_heads"
+    head_dim = d_model // num_heads
+
+    def _linear(x: Tensor, W: Tensor, d_in: int, d_out: int) -> Tensor:
+        W_out_in = W if W.shape[1] == d_in else W.T
+        return run_linear(d_in, d_out, W_out_in, x)
+
+    x = in_features
+    x1 = run_rmsnorm(d_model, 1e-6, weights["ln1.weight"], x)
+
+    Wq = weights["attn.q_proj.weight"]
+    Wk = weights["attn.k_proj.weight"]
+    Wv = weights["attn.v_proj.weight"]
+    Wo = weights["attn.output_proj.weight"]
+
+    if Wq.shape == Wk.shape == Wv.shape and Wq.ndim == 2:
+        if Wq.shape[1] == d_model:
+            Wqkv = torch.cat([Wq, Wk, Wv], dim=0)
+            qkv = x1 @ Wqkv.transpose(-1, -2)
+        elif Wq.shape[0] == d_model:
+            Wqkv = torch.cat([Wq, Wk, Wv], dim=1)
+            qkv = x1 @ Wqkv
+        else:
+            Q = _linear(x1, Wq, d_model, d_model)
+            K = _linear(x1, Wk, d_model, d_model)
+            V = _linear(x1, Wv, d_model, d_model)
+            qkv = torch.cat([Q, K, V], dim=-1)
+    else:
+        Q = _linear(x1, Wq, d_model, d_model)
+        K = _linear(x1, Wk, d_model, d_model)
+        V = _linear(x1, Wv, d_model, d_model)
+        qkv = torch.cat([Q, K, V], dim=-1)
+
+    Q, K, V = torch.split(qkv, [d_model, d_model, d_model], dim=-1)
+
+    Q = Q.reshape(batch, seq_len, num_heads, head_dim).transpose(1, 2)
+    K = K.reshape(batch, seq_len, num_heads, head_dim).transpose(1, 2)
+    V = V.reshape(batch, seq_len, num_heads, head_dim).transpose(1, 2)
+
+    token_positions = torch.arange(seq_len, device=x.device, dtype=torch.long)
+    Q = run_rope(head_dim, theta, max_seq_len, Q, token_positions)
+    K = run_rope(head_dim, theta, max_seq_len, K, token_positions)
+
+    causal_mask = torch.tril(torch.ones(seq_len, seq_len, device=x.device, dtype=torch.bool))
+    ctx = run_scaled_dot_product_attention(Q, K, V, mask=causal_mask)
+
+    ctx = ctx.transpose(1, 2).reshape(batch, seq_len, d_model)
+
+    attn_out = _linear(ctx, Wo, d_model, d_model)
+    y = x + attn_out
+
+
+    y1 = run_rmsnorm(d_model, 1e-6, weights["ln2.weight"], y)
+
+    W1 = weights["ffn.w1.weight"]
+    W2 = weights["ffn.w2.weight"]
+    W3 = weights["ffn.w3.weight"]
+
+    ff_out = run_swiglu(d_model, d_ff, W1, W2, W3, y1)
+
+    out = y + ff_out
+    return out
 
 
 def run_transformer_lm(
@@ -471,7 +521,39 @@ def run_transformer_lm(
         Float[Tensor, "batch_size sequence_length vocab_size"]: Tensor with the predicted unnormalized
         next-word distribution for each token.
     """
-    raise NotImplementedError
+    x = run_embedding(
+        vocab_size=vocab_size,
+        d_model=d_model,
+        weights=weights["token_embeddings.weight"],
+        token_ids=in_indices,
+    )
+
+    for i in range(num_layers):
+        prefix = f"layers.{i}."
+        block_weights = {
+            k[len(prefix) :]: v
+            for k, v in weights.items()
+            if k.startswith(prefix)
+        }
+        x = run_transformer_block(
+            d_model=d_model,
+            num_heads=num_heads,
+            d_ff=d_ff,
+            max_seq_len=context_length,
+            theta=rope_theta,
+            weights=block_weights,
+            in_features=x,
+        )
+
+    x = run_rmsnorm(d_model, 1e-6, weights["ln_final.weight"], x)
+
+    logits = run_linear(
+        d_in=d_model,
+        d_out=vocab_size,
+        weights=weights["lm_head.weight"],
+        in_features=x,
+    )
+    return logits
 
 
 def run_rmsnorm(
@@ -588,7 +670,9 @@ def run_cross_entropy(
     Returns:
         Float[Tensor, ""]: The average cross-entropy loss across examples.
     """
-    raise NotImplementedError
+    log_softmax = inputs - torch.logsumexp(inputs, dim=-1, keepdim=True)
+    log_probs = log_softmax.gather(dim=-1, index=targets.unsqueeze(-1)).squeeze(-1)
+    return (-log_probs).mean()
 
 
 def run_gradient_clipping(parameters: Iterable[torch.nn.Parameter], max_l2_norm: float) -> None:
@@ -607,7 +691,57 @@ def get_adamw_cls() -> Any:
     """
     Returns a torch.optim.Optimizer that implements AdamW.
     """
-    raise NotImplementedError
+
+    class AdamW(torch.optim.Optimizer):
+        def __init__(
+            self,
+            params,
+            lr: float = 1e-3,
+            betas: tuple[float, float] = (0.9, 0.999),
+            eps: float = 1e-8,
+            weight_decay: float = 0.01,
+        ):
+            defaults = dict(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay)
+            super().__init__(params, defaults)
+
+        def step(self, closure=None):
+            loss = None
+            if closure is not None:
+                with torch.enable_grad():
+                    loss = closure()
+
+            for group in self.param_groups:
+                lr = group["lr"]
+                beta1, beta2 = group["betas"]
+                eps = group["eps"]
+                weight_decay = group["weight_decay"]
+
+                for p in group["params"]:
+                    if p.grad is None:
+                        continue
+                    g = p.grad
+
+                    state = self.state[p]
+                    if len(state) == 0:
+                        state["step"] = 0
+                        state["exp_avg"] = torch.zeros_like(p)
+                        state["exp_avg_sq"] = torch.zeros_like(p)
+
+                    state["step"] += 1
+                    t = state["step"]
+                    m, v = state["exp_avg"], state["exp_avg_sq"]
+
+                    m.mul_(beta1).add_(g, alpha=1 - beta1)
+                    v.mul_(beta2).addcmul_(g, g, value=1 - beta2)
+
+                    alpha_t = lr * math.sqrt(1 - beta2**t) / (1 - beta1**t)
+                    denom = v.sqrt() + eps
+                    p.data.addcdiv_(m, denom, value=-alpha_t)
+                    p.data.add_(p.data, alpha=-lr * weight_decay)
+
+            return loss
+
+    return AdamW
 
 
 def run_get_lr_cosine_schedule(
