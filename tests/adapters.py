@@ -276,7 +276,42 @@ def run_multihead_self_attention_with_rope(
         Float[Tensor, " ... sequence_length d_out"]: Tensor with the output of running your optimized, batched multi-headed attention
         implementation with the given QKV projection weights and input features.
     """
-    raise NotImplementedError
+    *batch_dims, seq_len, _ = in_features.shape
+
+    d_k_total = q_proj_weight.shape[0]
+    d_v_total = v_proj_weight.shape[0]
+
+    assert d_k_total % num_heads == 0
+    assert d_v_total % num_heads == 0
+
+    head_dim = d_k_total // num_heads
+    head_dim_v = d_v_total // num_heads
+
+    qkv_weight = torch.cat([q_proj_weight, k_proj_weight, v_proj_weight], dim=0)
+    qkv = in_features @ qkv_weight.transpose(-1, -2)
+
+    Q, K, V = torch.split(qkv, [d_k_total, d_k_total, d_v_total], dim=-1)
+
+    Q = Q.reshape(*batch_dims, seq_len, num_heads, head_dim).transpose(-3, -2)
+    K = K.reshape(*batch_dims, seq_len, num_heads, head_dim).transpose(-3, -2)
+    V = V.reshape(*batch_dims, seq_len, num_heads, head_dim_v).transpose(-3, -2)
+
+    if token_positions is None:
+        rope_pos = torch.arange(seq_len, device=in_features.device, dtype=torch.long)
+    else:
+        rope_pos = token_positions.squeeze(0) if token_positions.ndim > 1 and token_positions.shape[0] == 1 else token_positions
+
+    Q = run_rope(head_dim, theta, max_seq_len, Q, rope_pos)
+    K = run_rope(head_dim, theta, max_seq_len, K, rope_pos)
+
+    causal_mask = torch.tril(
+        torch.ones(seq_len, seq_len, device=in_features.device, dtype=torch.bool)
+    )
+    ctx = run_scaled_dot_product_attention(Q, K, V, mask=causal_mask)
+
+    ctx = ctx.transpose(-3, -2).reshape(*batch_dims, seq_len, d_v_total)
+    out = ctx @ o_proj_weight.transpose(-1, -2)
+    return out
 
 
 def run_rope(
