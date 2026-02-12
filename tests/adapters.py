@@ -17,6 +17,10 @@ import regex as re
 from student.pretokenization_example import find_chunk_boundaries
 from student.tokenizer import Tokenizer
 from student.regexsplitter import RegexSplitter
+from student.embedding import Embedding
+from student.rmsnorm import RMSNorm
+from student.linear import Linear
+from student.swiglu import SwiGLU
 
 
 def run_linear(
@@ -37,8 +41,14 @@ def run_linear(
     Returns:
         Float[Tensor, "... d_out"]: The transformed output of your linear module.
     """
-
-    raise NotImplementedError
+    from student.linear import Linear
+    
+    # Create Linear module and load the provided weights
+    linear = Linear(in_features=d_in, out_features=d_out, device=weights.device, dtype=weights.dtype)
+    linear.load_state_dict({"W": weights})
+    
+    # Apply the linear transformation
+    return linear(in_features)
 
 
 def run_embedding(
@@ -59,8 +69,18 @@ def run_embedding(
     Returns:
         Float[Tensor, "... d_model"]: Batch of embeddings returned by your Embedding layer.
     """
+    emb = Embedding(
+        num_embeddings=vocab_size,
+        embedding_dim=d_model,
+        device=weights.device,
+        dtype=weights.dtype,
+    )
 
-    raise NotImplementedError
+    # Load the provided weights into the embedding matrix.
+    emb.load_state_dict({"weight": weights})
+
+    # Lookup embeddings for the given token IDs.
+    return emb(token_ids)
 
 
 def run_swiglu(
@@ -85,14 +105,19 @@ def run_swiglu(
     Returns:
         Float[Tensor, "... d_model"]: Output embeddings of the same shape as the input embeddings.
     """
-    # Example:
-    # If your state dict keys match, you can use `load_state_dict()`
-    # swiglu.load_state_dict(weights)
-    # You can also manually assign the weights
-    # swiglu.w1.weight.data = w1_weight
-    # swiglu.w2.weight.data = w2_weight
-    # swiglu.w3.weight.data = w3_weight
-    raise NotImplementedError
+    swiglu = SwiGLU(
+        d_model=d_model,
+        d_ff=d_ff,
+        device=w1_weight.device,
+        dtype=w1_weight.dtype,
+    )
+    
+    # Load weights into the linear layers
+    swiglu.w1.load_state_dict({"W": w1_weight})
+    swiglu.w2.load_state_dict({"W": w2_weight})
+    swiglu.w3.load_state_dict({"W": w3_weight})
+    
+    return swiglu(in_features)
 
 
 def run_scaled_dot_product_attention(
@@ -391,7 +416,18 @@ def run_rmsnorm(
         Float[Tensor,"... d_model"]: Tensor of with the same shape as `in_features` with the output of running
         RMSNorm of the `in_features`.
     """
-    raise NotImplementedError
+    rmsnorm = RMSNorm(
+        d_model=d_model,
+        eps=eps,
+        device=weights.device,
+        dtype=weights.dtype,
+    )
+    
+    # Load the provided weights
+    rmsnorm.load_state_dict({"weight": weights})
+    
+    # Apply RMSNorm
+    return rmsnorm(in_features)
 
 
 def run_silu(in_features: Float[Tensor, " ..."]) -> Float[Tensor, " ..."]:  # type: ignore
@@ -405,7 +441,8 @@ def run_silu(in_features: Float[Tensor, " ..."]) -> Float[Tensor, " ..."]:  # ty
         Float[Tensor,"..."]: of with the same shape as `in_features` with the output of applying
         SiLU to each element.
     """
-    raise NotImplementedError
+    # SiLU(x) = x * sigmoid(x)
+    return in_features * torch.sigmoid(in_features)
 
 
 def run_get_batch(
