@@ -30,9 +30,11 @@ class SwiGLU(nn.Module):
 
         # Three linear layers for SwiGLU
         # W1: up-project from d_model to d_ff
+        #rows-> d_ff, columns-> d_model
         self.w1 = Linear(d_model, d_ff, device=device, dtype=dtype)
         # W3: gate projection from d_model to d_ff
         self.w3 = Linear(d_model, d_ff, device=device, dtype=dtype)
+        #rows-> d_model, columns-> d_ff
         # W2: down-project from d_ff to d_model
         self.w2 = Linear(d_ff, d_model, device=device, dtype=dtype)
 

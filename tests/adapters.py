@@ -23,6 +23,7 @@ from student.rmsnorm import RMSNorm
 from student.linear import Linear
 from student.swiglu import SwiGLU
 from student.rope import RotaryPositionalEmbedding
+from student.adamw import AdamW
 
 
 def run_linear(
@@ -740,60 +741,10 @@ def run_gradient_clipping(parameters: Iterable[torch.nn.Parameter], max_l2_norm:
             g.mul_(clip_coef)
 
 
-def get_adamw_cls() -> Any:
+def get_adamw_cls() -> type[torch.optim.Optimizer]:
     """
     Returns a torch.optim.Optimizer that implements AdamW.
     """
-
-    class AdamW(torch.optim.Optimizer):
-        def __init__(
-            self,
-            params,
-            lr: float = 1e-3,
-            betas: tuple[float, float] = (0.9, 0.999),
-            eps: float = 1e-8,
-            weight_decay: float = 0.01,
-        ):
-            defaults = dict(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay)
-            super().__init__(params, defaults)
-
-        def step(self, closure=None):
-            loss = None
-            if closure is not None:
-                with torch.enable_grad():
-                    loss = closure()
-
-            for group in self.param_groups:
-                lr = group["lr"]
-                beta1, beta2 = group["betas"]
-                eps = group["eps"]
-                weight_decay = group["weight_decay"]
-
-                for p in group["params"]:
-                    if p.grad is None:
-                        continue
-                    g = p.grad
-
-                    state = self.state[p]
-                    if len(state) == 0:
-                        state["step"] = 0
-                        state["exp_avg"] = torch.zeros_like(p)
-                        state["exp_avg_sq"] = torch.zeros_like(p)
-
-                    state["step"] += 1
-                    t = state["step"]
-                    m, v = state["exp_avg"], state["exp_avg_sq"]
-
-                    m.mul_(beta1).add_(g, alpha=1 - beta1)
-                    v.mul_(beta2).addcmul_(g, g, value=1 - beta2)
-
-                    alpha_t = lr * math.sqrt(1 - beta2**t) / (1 - beta1**t)
-                    denom = v.sqrt() + eps
-                    p.data.addcdiv_(m, denom, value=-alpha_t)
-                    p.data.add_(p.data, alpha=-lr * weight_decay)
-
-            return loss
-
     return AdamW
 
 
@@ -989,10 +940,9 @@ def merge_pair_incremental(
 
     Only updates words that actually contain `pair` (via pair_to_words[pair]).
     """
-    affected = pair_to_words.get(pair) #get the words that contain the pair
+    affected = pair_to_words.get(pair) 
 
-    # Copy because we will mutate maps/sets as we go
-    affected_words = list(affected) #convert the set to a list
+    affected_words = list(affected) 
 
     for w in affected_words:
         freq = word_freqs[w]
