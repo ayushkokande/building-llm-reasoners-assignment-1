@@ -26,11 +26,13 @@ class Linear(nn.Module):
 
         # Create weight parameter W with shape (out_features, in_features)
         # This is stored as W (not W^T) for memory ordering reasons
+        #out_features -> rows, in_features -> columns
         self.W = nn.Parameter(torch.empty((out_features, in_features), device=device, dtype=dtype))
         
         # Initialize weights using truncated normal distribution
         init.trunc_normal_(self.W, mean=0.0, std=0.02, a=-2 * 0.02, b=2 * 0.02)
 
+        #W -> (out_features, in_features)
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         Apply linear transformation: output = x @ W^T
@@ -43,4 +45,7 @@ class Linear(nn.Module):
         """
         # Since W is (out_features, in_features), we transpose it to get W^T
         # Then compute: x @ W^T
+        # x -> (..., in_features)
+        # W^T -> (in_features, out_features)
+        # output -> (..., out_features)
         return x @ self.W.T
