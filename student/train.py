@@ -1,12 +1,6 @@
 #!/usr/bin/env python3
 """
 Training script for the Transformer language model.
-
-Supports:
-- Configurable model and optimizer hyperparameters (CLI / config)
-- Memory-efficient train/val loading with np.memmap
-- Checkpoint serialization to a user-provided path
-- Periodic logging to console and optional Weights & Biases (wandb)
 """
 
 from __future__ import annotations
@@ -80,8 +74,13 @@ def parse_args() -> argparse.Namespace:
     # Data
     p.add_argument("--train_data", type=str, required=True, help="Path to training data (.npy or .bin)")
     p.add_argument("--val_data", type=str, default=None, help="Path to validation data (.npy or .bin)")
-    p.add_argument("--data_dtype", type=str, default="uint32", choices=["uint16", "uint32", "int32"],
-                   help="Dtype for memmap array (for .bin files)")
+    p.add_argument(
+        "--data_dtype",
+        type=str,
+        default="uint32",
+        choices=["uint16", "uint32", "int32"],
+        help="Dtype for memmap array (for .bin files)",
+    )
     # Model
     p.add_argument("--vocab_size", type=int, default=10000)
     p.add_argument("--context_length", type=int, default=128)
@@ -102,7 +101,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--cosine_cycle_iters", type=int, default=10_000)
     p.add_argument("--max_grad_norm", type=float, default=1.0)
     p.add_argument("--checkpoint_dir", type=str, default="./checkpoints")
-    p.add_argument("--checkpoint_every", type=int, default=1000)    # Logging
+    p.add_argument("--checkpoint_every", type=int, default=1000)
+    # Logging
     p.add_argument("--log_every", type=int, default=10)
     p.add_argument("--val_every", type=int, default=500)
     p.add_argument("--wandb_project", type=str, default=None, help="If set, enable Weights & Biases logging")
@@ -151,6 +151,7 @@ def main() -> None:
     if args.wandb_project:
         try:
             import wandb
+
             wandb.init(project=args.wandb_project, name=args.wandb_run_name, config=vars(args))
         except Exception as e:
             print(f"wandb init failed: {e}, continuing without wandb")
