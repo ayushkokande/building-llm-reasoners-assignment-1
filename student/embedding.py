@@ -31,6 +31,8 @@ class Embedding(nn.Module):
         self.weight = nn.Parameter(
             torch.empty((num_embeddings, embedding_dim), device=device, dtype=dtype)
         )
+        #num_embeddings -> number of tokens in the vocabulary, i.e. vocab_size 
+        #embedding_dim -> size of the embedding vectors, i.e. d_model
 
         # Initialize weights with truncated normal, similar to the Linear layer.
         init.trunc_normal_(self.weight, mean=0.0, std=0.02, a=-2 * 0.02, b=2 * 0.02)
