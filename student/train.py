@@ -61,7 +61,7 @@ def prepare_dataset_for_memmap(
         arr = np.load(data_path)
         np.save(output_path, arr, allow_pickle=False)
         return
-    # Assume one token ID per line or a single line of space-separated IDs
+
     with open(data_path) as f:
         content = f.read()
     tokens = [int(x) for x in content.split() if x.strip()]
@@ -71,7 +71,6 @@ def prepare_dataset_for_memmap(
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Train Transformer LM with memmap data and checkpointing.")
-    # Data
     p.add_argument("--train_data", type=str, required=True, help="Path to training data (.npy or .bin)")
     p.add_argument("--val_data", type=str, default=None, help="Path to validation data (.npy or .bin)")
     p.add_argument(
@@ -81,7 +80,6 @@ def parse_args() -> argparse.Namespace:
         choices=["uint16", "uint32", "int32"],
         help="Dtype for memmap array (for .bin files)",
     )
-    # Model
     p.add_argument("--vocab_size", type=int, default=10000)
     p.add_argument("--context_length", type=int, default=128)
     p.add_argument("--d_model", type=int, default=256)
@@ -89,12 +87,12 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--num_heads", type=int, default=4)
     p.add_argument("--d_ff", type=int, default=512)
     p.add_argument("--rope_theta", type=float, default=10000.0)
-    # Optimizer
+
     p.add_argument("--lr", type=float, default=3e-4)
     p.add_argument("--weight_decay", type=float, default=0.01)
     p.add_argument("--betas", type=float, nargs=2, default=(0.9, 0.999))
     p.add_argument("--eps", type=float, default=1e-8)
-    # Training
+
     p.add_argument("--batch_size", type=int, default=32)
     p.add_argument("--max_iters", type=int, default=10_000)
     p.add_argument("--warmup_iters", type=int, default=100)
@@ -102,12 +100,12 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--max_grad_norm", type=float, default=1.0)
     p.add_argument("--checkpoint_dir", type=str, default="./checkpoints")
     p.add_argument("--checkpoint_every", type=int, default=1000)
-    # Logging
+    
     p.add_argument("--log_every", type=int, default=10)
     p.add_argument("--val_every", type=int, default=500)
     p.add_argument("--wandb_project", type=str, default=None, help="If set, enable Weights & Biases logging")
     p.add_argument("--wandb_run_name", type=str, default=None)
-    # Device
+
     p.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
     return p.parse_args()
 
@@ -118,7 +116,7 @@ def main() -> None:
     dtype_map = {"uint16": np.uint16, "uint32": np.uint32, "int32": np.int32}
     data_dtype = dtype_map.get(args.data_dtype, np.uint32)
 
-    # Memory-efficient data loading with np.memmap
+
     train_ds = load_dataset_memmap(args.train_data, dtype=data_dtype)
     val_ds = None
     if args.val_data:
@@ -177,7 +175,6 @@ def main() -> None:
         )
         optimizer.zero_grad()
         logits = model(x)
-        # Flatten batch and sequence for cross_entropy: (B*T, V), (B*T)
         logits_flat = logits.reshape(-1, logits.size(-1))
         targets_flat = y.reshape(-1)
         loss = run_cross_entropy(logits_flat, targets_flat)

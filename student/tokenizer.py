@@ -73,7 +73,7 @@ class Tokenizer:
         tokens: list[bytes] = [bytes([b]) for b in word_bytes]
 
         for a, b in self.merges:
-            merged = a + b #merging two bytes to form a new byte
+            merged = a + b 
             new_tokens: list[bytes] = []
             i = 0
             n = len(tokens)
@@ -87,21 +87,19 @@ class Tokenizer:
             tokens = new_tokens
 
         return [self._bytes_to_id[tok] for tok in tokens]
-    #This function takes in input text, splits it on special tokens and then tokenizes the text, 
-    #It uses the BPE merges from running the BPE training script to merge the tokens.
-    #It takes each token and applies the BPE merges to it in the order of the merges file. 
+
     def encode(self, text: str) -> list[int]:
         """
         Encode input text into token IDs.   
         """
         out: list[int] = []
-        parts = self._splitter.split_on_special_tokens(text) #Split the text on special tokens
-        for part in parts: #iterate over each word in the text of each part of the text.
+        parts = self._splitter.split_on_special_tokens(text) 
+        for part in parts: 
             if part in self.special_tokens:
-                out.append(self._bytes_to_id[part.encode("utf-8")]) #encode the special token and add it to the output.
+                out.append(self._bytes_to_id[part.encode("utf-8")]) 
                 continue
             for m in self._token_re.finditer(part):
-                piece = m.group(0) #a pretoken string, e.g:- "hello", "the"
+                piece = m.group(0) 
                 piece_bytes = piece.encode("utf-8") #
                 out.extend(self._bpe_merge_helper(piece_bytes))
 
