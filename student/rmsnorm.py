@@ -7,12 +7,6 @@ import torch.nn as nn
 class RMSNorm(nn.Module):
     """
     Root Mean Square Layer Normalization (RMSNorm).
-    
-    Normalizes input by RMS across the last dimension (d_model),
-    then scales by a learnable weight parameter.
-    
-    Formula: output = (x / rms) * weight
-    where rms = sqrt(mean(x^2) + eps)
     """
 
     def __init__(
