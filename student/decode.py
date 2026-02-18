@@ -33,7 +33,7 @@ def _infer_hparams_from_state_dict(state: dict[str, torch.Tensor]) -> dict[str, 
     num_layers = (max(layer_ids) + 1) if layer_ids else 0
 
     rope_cos_key = next(k for k in state.keys() if k.endswith("rope.cos"))
-    cos = state[rope_cos_key]  # (max_seq_len, head_dim/2)
+    cos = state[rope_cos_key]
     context_length = int(cos.shape[0])
     head_dim = int(cos.shape[1]) * 2
     num_heads = int(d_model // head_dim) if head_dim > 0 else 1
@@ -73,12 +73,12 @@ def _sample_next_token(
 
     sorted_probs, sorted_idx = torch.sort(probs, descending=True)
     cum = torch.cumsum(sorted_probs, dim=-1)
-    keep = cum <= top_p
-    keep[0] = True  
+    keep = (cum - sorted_probs) < top_p
+    keep[..., 0] = True
 
     filtered = sorted_probs * keep
     filtered = filtered / filtered.sum(dim=-1, keepdim=True)
-    sampled_pos = torch.multinomial(filtered, num_samples=1) 
+    sampled_pos = torch.multinomial(filtered, num_samples=1)
     return sorted_idx.gather(dim=-1, index=sampled_pos)
 
 
@@ -122,12 +122,12 @@ def main() -> None:
     model.eval()
 
     ids = tokenizer.encode(prompt)
-    idx = torch.tensor(ids, dtype=torch.long, device=device).unsqueeze(0)  # (1, T)
+    idx = torch.tensor(ids, dtype=torch.long, device=device).unsqueeze(0)
 
     with torch.no_grad():
         for _ in range(args.max_new_tokens):
             idx_cond = idx[:, -model.context_length :]
-            logits = model(idx_cond)  
+            logits = model(idx_cond)
             next_logits = logits[0, -1, :]
             next_id = _sample_next_token(next_logits, temperature=args.temperature, top_p=args.top_p)
             idx = torch.cat([idx, next_id.view(1, 1)], dim=1)
@@ -141,4 +141,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

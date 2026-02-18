@@ -1,16 +1,18 @@
 from __future__ import annotations
 
 import math
-from collections import Counter
+import os
+from collections import Counter, defaultdict
+from multiprocessing import Pool
 from pathlib import Path
-from typing import Any, BinaryIO, IO
+from typing import Any, BinaryIO, Dict, IO, Tuple
 
 import numpy as np
-import regex as re
 import torch
 import torch.nn.functional as F
 
 from student.adamw import AdamW
+from student.pretokenization_example import find_chunk_boundaries
 from student.regexsplitter import RegexSplitter
 from student.rope import RotaryPositionalEmbedding
 from student.tokenizer import PAT as GPT2_PRETOKENIZE_PATTERN
@@ -24,7 +26,6 @@ def run_linear(
     in_features: torch.Tensor,
 ) -> torch.Tensor:
     _ = d_in, d_out
-    # weights: (d_out, d_in); in_features: (..., d_in) -> (..., d_out)
     return in_features @ weights.T
 
 
@@ -51,14 +52,12 @@ def run_swiglu(
     in_features: torch.Tensor,
 ) -> torch.Tensor:
     _ = d_model, d_ff
-    # w1, w3: (d_ff, d_model); w2: (d_model, d_ff)
     up = in_features @ w1_weight.T
     gate = in_features @ w3_weight.T
     return (F.silu(up) * gate) @ w2_weight.T
 
 
 def _softmax_stable(x: torch.Tensor, dim: int) -> torch.Tensor:
-    # Stable softmax without masks.
     x_max = x.max(dim=dim, keepdim=True).values
     exp = torch.exp(x - x_max)
     return exp / exp.sum(dim=dim, keepdim=True)
@@ -118,7 +117,6 @@ def run_multihead_self_attention(
     K = in_features @ k_proj_weight.T
     V = in_features @ v_proj_weight.T
 
-    # (..., seq, d_model) -> (..., heads, seq, head_dim)
     Q = Q.view(*batch_dims, seq_len, num_heads, head_dim).transpose(-3, -2)
     K = K.view(*batch_dims, seq_len, num_heads, head_dim).transpose(-3, -2)
     V = V.view(*batch_dims, seq_len, num_heads, head_dim).transpose(-3, -2)
@@ -126,7 +124,6 @@ def run_multihead_self_attention(
     causal = torch.tril(torch.ones(seq_len, seq_len, device=in_features.device, dtype=torch.bool))
     ctx = run_scaled_dot_product_attention(Q=Q, K=K, V=V, mask=causal)
 
-    # (..., heads, seq, head_dim) -> (..., seq, d_model)
     ctx = ctx.transpose(-3, -2).reshape(*batch_dims, seq_len, _d_in)
     return ctx @ o_proj_weight.T
 
@@ -139,8 +136,6 @@ def run_rope(
     token_positions: torch.Tensor,
 ) -> torch.Tensor:
     rope = RotaryPositionalEmbedding(theta=theta, d_k=d_k, max_seq_len=max_seq_len, device=in_query_or_key.device)
-    # Make token_positions broadcastable to in_query_or_key's batch dims.
-    # in_query_or_key: (*batch_dims, seq_len, d_k)
     *batch_dims, seq_len, _ = in_query_or_key.shape
     if token_positions.shape[-1] != seq_len:
         raise ValueError("token_positions must have last dimension == seq_len")
@@ -292,7 +287,6 @@ def run_get_batch(
     n = int(dataset.shape[0])
     if n <= context_length:
         raise ValueError("Dataset too small for requested context_length")
-    # start indices in [0, n - context_length - 1]
     start = np.random.randint(0, n - context_length, size=(batch_size,))
     x = np.stack([dataset[i : i + context_length] for i in start], axis=0)
     y = np.stack([dataset[i + 1 : i + context_length + 1] for i in start], axis=0)
@@ -302,7 +296,6 @@ def run_get_batch(
 
 
 def run_cross_entropy(inputs: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
-    # inputs: (N, C), targets: (N,)
     log_probs = inputs - torch.logsumexp(inputs, dim=-1, keepdim=True)
     nll = -log_probs.gather(dim=-1, index=targets.view(-1, 1)).squeeze(-1)
     return nll.mean()
@@ -384,7 +377,6 @@ def get_tokenizer(
     merges: list[tuple[bytes, bytes]],
     special_tokens: list[str] | None = None,
 ) -> Tokenizer:
-    # Ensure special tokens exist in the vocab (append if missing).
     vocab_out = dict(vocab)
     if special_tokens:
         existing = set(vocab_out.values())
@@ -398,15 +390,59 @@ def get_tokenizer(
     return Tokenizer(vocab=vocab_out, merges=merges, special_tokens=special_tokens)
 
 
-def _merge_word_symbols(word: tuple[bytes, ...], pair: tuple[bytes, bytes]) -> tuple[bytes, ...]:
+def pre_tokenize(
+    splitter: RegexSplitter,
+    filepath: str,
+    num_processes: int = 1,
+    special_token: str = "<|endoftext|>",
+) -> dict[str, int]:
+    handle: BinaryIO = Path(filepath).open("rb")
+    boundaries = find_chunk_boundaries(handle, max(num_processes * 4, 1), special_token.encode("utf-8"))
+    handle.close()
+
+    args = [(filepath, start, end) for start, end in zip(boundaries[:-1], boundaries[1:])]
+    pre_token_counts: dict[str, int] = {}
+
+    with Pool(num_processes) as p:
+        results = p.starmap(splitter.seek_and_split, args)
+    for pre_token_counts_sample in results:
+        for k, v in pre_token_counts_sample.items():
+            pre_token_counts[k] = pre_token_counts.get(k, 0) + v
+
+    return pre_token_counts
+
+
+Word = Tuple[int, ...]
+Pair = Tuple[int, int]
+
+
+def _iter_pairs(word: Word):
+    for i in range(len(word) - 1):
+        yield (word[i], word[i + 1])
+
+
+def build_pair_indexes(word_freqs: Dict[Word, int]):
+    pair_counts: Counter[Pair] = Counter()
+    pair_to_words: Dict[Pair, set[Word]] = defaultdict(set)
+
+    for w, freq in word_freqs.items():
+        if len(w) < 2:
+            continue
+        for p in _iter_pairs(w):
+            pair_counts[p] += freq
+            pair_to_words[p].add(w)
+
+    return pair_counts, pair_to_words
+
+
+def _merge_in_word(word: Word, pair: Pair, new_id: int) -> Word:
     a, b = pair
-    merged = a + b
-    out: list[bytes] = []
+    out: list[int] = []
     i = 0
     n = len(word)
     while i < n:
         if i < n - 1 and word[i] == a and word[i + 1] == b:
-            out.append(merged)
+            out.append(new_id)
             i += 2
         else:
             out.append(word[i])
@@ -414,118 +450,108 @@ def _merge_word_symbols(word: tuple[bytes, ...], pair: tuple[bytes, bytes]) -> t
     return tuple(out)
 
 
-def _iter_adjacent_pairs(word: tuple[bytes, ...]):
-    for i in range(len(word) - 1):
-        yield (word[i], word[i + 1])
+def merge_pair_incremental(
+    word_freqs: Dict[Word, int],
+    pair_counts: Counter[Pair],
+    pair_to_words: Dict[Pair, set[Word]],
+    pair: Pair,
+    new_id: int,
+) -> None:
+    affected = pair_to_words.get(pair)
+    affected_words = list(affected)
 
-
-def run_train_bpe(
-    input_path: str | Path,
-    vocab_size: int,
-    special_tokens: list[str],
-) -> tuple[dict[int, bytes], list[tuple[bytes, bytes]]]:
-    """
-    Byte-level BPE training with GPT-2 pre-tokenization regex.
-    Returns vocab (id->bytes) and ordered merges (bytes, bytes).
-    """
-    input_path = Path(input_path)
-    data = input_path.read_bytes()
-    text = data.decode("utf-8", errors="ignore")
-
-    splitter = RegexSplitter(pat=GPT2_PRETOKENIZE_PATTERN, special_tokens=special_tokens)
-    parts = splitter.split_on_special_tokens(text)
-    token_re = re.compile(GPT2_PRETOKENIZE_PATTERN)
-    specials_set = set(special_tokens)
-
-    pretoken_counts: Counter[str] = Counter()
-    for part in parts:
-        if part in specials_set:
-            continue
-        for m in token_re.finditer(part):
-            pretoken_counts[m.group(0)] += 1
-
-    # Map each unique pre-token to its byte-symbol sequence.
-    word_counts: dict[tuple[bytes, ...], int] = {}
-    for tok, c in pretoken_counts.items():
-        b = tok.encode("utf-8")
-        word = tuple(bytes([x]) for x in b)
-        word_counts[word] = word_counts.get(word, 0) + int(c)
-
-    # Initialize vocab with special tokens then all 256 bytes.
-    vocab: dict[int, bytes] = {}
-    vocab_bytes: set[bytes] = set()
-    next_id = 0
-    for st in special_tokens:
-        b = st.encode("utf-8")
-        if b not in vocab_bytes:
-            vocab[next_id] = b
-            vocab_bytes.add(b)
-            next_id += 1
-    for i in range(256):
-        b = bytes([i])
-        if b not in vocab_bytes:
-            vocab[next_id] = b
-            vocab_bytes.add(b)
-            next_id += 1
-
-    # Pair counting structures.
-    pair_counts: dict[tuple[bytes, bytes], int] = {}
-    pair_to_words: dict[tuple[bytes, bytes], set[tuple[bytes, ...]]] = {}
-
-    for w, c in word_counts.items():
-        for p in _iter_adjacent_pairs(w):
-            pair_counts[p] = pair_counts.get(p, 0) + c
-            pair_to_words.setdefault(p, set()).add(w)
-
-    merges: list[tuple[bytes, bytes]] = []
-
-    while len(vocab) < vocab_size and pair_counts:
-        best_pair, best_count = max(pair_counts.items(), key=lambda kv: (kv[1], kv[0]))
-        if best_count <= 0:
-            break
-
-        merges.append(best_pair)
-
-        merged_token = best_pair[0] + best_pair[1]
-        if merged_token not in vocab_bytes:
-            vocab[next_id] = merged_token
-            vocab_bytes.add(merged_token)
-            next_id += 1
-            if len(vocab) >= vocab_size:
-                break
-
-        impacted = list(pair_to_words.get(best_pair, set()))
-        if not impacted:
-            pair_counts.pop(best_pair, None)
-            continue
-
-        # Clear impacted set so we don't process stale words later.
-        pair_to_words[best_pair] = set()
-
-        for old_word in impacted:
-            freq = word_counts.pop(old_word, 0)
-            if freq == 0:
-                continue
-
-            # Remove old pairs contributions.
-            for p in _iter_adjacent_pairs(old_word):
+    for w in affected_words:
+        freq = word_freqs[w]
+        if len(w) >= 2:
+            for p in _iter_pairs(w):
                 pair_counts[p] -= freq
                 s = pair_to_words.get(p)
                 if s is not None:
-                    s.discard(old_word)
+                    s.discard(w)
                     if not s:
-                        pair_to_words.pop(p, None)
+                        del pair_to_words[p]
+                if pair_counts[p] == 0:
+                    del pair_counts[p]
 
-            new_word = _merge_word_symbols(old_word, best_pair)
-            word_counts[new_word] = word_counts.get(new_word, 0) + freq
+        new_w = _merge_in_word(w, pair, new_id)
 
-            # Add new pairs contributions.
-            for p in _iter_adjacent_pairs(new_word):
-                pair_counts[p] = pair_counts.get(p, 0) + freq
-                pair_to_words.setdefault(p, set()).add(new_word)
+        del word_freqs[w]
+        word_freqs[new_w] = word_freqs.get(new_w, 0) + freq
 
-        # Drop any pairs whose counts fell to <= 0 to keep dict smaller.
-        pair_counts = {p: c for p, c in pair_counts.items() if c > 0}
+        if len(new_w) >= 2:
+            for p in _iter_pairs(new_w):
+                pair_counts[p] += freq
+                pair_to_words.setdefault(p, set()).add(new_w)
+
+    pair_counts.pop(pair, None)
+
+
+def pretokenize(
+    filepath: str | os.PathLike,
+    special_tokens: list[str],
+    pat: str,
+    num_processes: int = 1,
+) -> Counter[tuple[bytes, ...]]:
+    splitter = RegexSplitter(pat=pat, special_tokens=special_tokens)
+
+    pre_token_counts = pre_tokenize(
+        splitter=splitter,
+        filepath=str(filepath),
+        num_processes=num_processes,
+        special_token=special_tokens[0] if special_tokens else "<|endoftext|>",
+    )
+    counts: Counter[tuple[bytes, ...]] = Counter()
+    for s, cnt in pre_token_counts.items():
+        key = tuple(bytes([b]) for b in s.encode("utf-8"))
+        counts[key] += cnt
+
+    return counts
+
+
+def run_train_bpe(
+    input_path: str | os.PathLike,
+    vocab_size: int,
+    special_tokens: list[str],
+    **kwargs,
+) -> tuple[dict[int, bytes], list[tuple[bytes, bytes]]]:
+    input_file_path = Path(input_path)
+
+    vocab: dict[int, bytes] = {}
+    next_id = 0
+    for i in range(256):
+        vocab[next_id] = bytes([i])
+        next_id += 1
+
+    num_processes = kwargs.get("num_processes", 8)
+
+    word_freqs = pretokenize(
+        filepath=input_file_path,
+        special_tokens=special_tokens,
+        pat=GPT2_PRETOKENIZE_PATTERN,
+        num_processes=num_processes,
+    )
+
+    for token in special_tokens:
+        vocab[next_id] = token.encode("utf-8")
+        next_id += 1
+
+    pair_counts, pair_to_words = build_pair_indexes(word_freqs)
+    num_merges = vocab_size - len(vocab)
+    merges: list[tuple[bytes, bytes]] = []
+
+    for _ in range(num_merges):
+        if not pair_counts:
+            break
+
+        best_pair = max(pair_counts.items(), key=lambda x: (x[1], x[0]))[0]
+        a, b = best_pair
+        merges.append((a, b))
+
+        new_token = a + b
+        vocab[next_id] = new_token
+        next_id += 1
+
+        merge_pair_incremental(word_freqs, pair_counts, pair_to_words, best_pair, new_token)
 
     return vocab, merges
 

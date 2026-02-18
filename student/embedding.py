@@ -26,16 +26,11 @@ class Embedding(nn.Module):
         self.num_embeddings = num_embeddings
         self.embedding_dim = embedding_dim
 
-        # Store embedding matrix with d_model (embedding_dim) as the final dimension.
-        # Shape: (vocab_size, d_model)
         self.weight = nn.Parameter(
             torch.empty((num_embeddings, embedding_dim), device=device, dtype=dtype)
         )
-        #num_embeddings -> number of tokens in the vocabulary, i.e. vocab_size 
-        #embedding_dim -> size of the embedding vectors, i.e. d_model
 
-        # Initialize weights with truncated normal, similar to the Linear layer.
-        init.trunc_normal_(self.weight, mean=0.0, std=0.02, a=-2 * 0.02, b=2 * 0.02)
+        init.trunc_normal_(self.weight, mean=0.0, std=1.0, a=-3.0, b=3.0)
 
     def forward(self, token_ids: torch.Tensor) -> torch.Tensor:
         """
