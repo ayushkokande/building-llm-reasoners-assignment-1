@@ -18,7 +18,6 @@ def _resolve_paths() -> tuple[Path, Path, Path]:
     script_dir = Path(__file__).resolve().parent
     repo_root = script_dir.parent
 
-    # Match the logic from tests/train_bpe_tinystories.py
     if (repo_root.parent / "data" / "TinyStoriesV2-GPT4-train.txt").exists():
         tinystories_path = repo_root.parent / "data" / "TinyStoriesV2-GPT4-train.txt"
     else:
@@ -44,7 +43,6 @@ def load_tokenizer() -> Tokenizer:
     return tokenizer
 
 
-#sample documents from TinyStories
 def sample_tinystories_documents(n_docs: int = 10) -> list[str]:
     """Sample `n_docs` documents from TinyStories, split on <|endoftext|>."""
     tinystories_path, _, _ = _resolve_paths()
@@ -108,10 +106,9 @@ def estimate_throughput_and_pile_tokenization_time(sample_bytes: int = 10_000_00
     t1 = time.time()
 
     elapsed = t1 - t0
-    throughput_bps = n_bytes / elapsed  # bytes per second
+    throughput_bps = n_bytes / elapsed  
     throughput_mb_s = throughput_bps / (1024 ** 2)
 
-    # Pile size: 825 GB of text
     pile_bytes = 825 * (1024 ** 3)
     pile_seconds = pile_bytes / throughput_bps
     pile_hours = pile_seconds / 3600
@@ -136,34 +133,96 @@ def encode_training_and_development_data():
 
     tokenizer = load_tokenizer()
     print("Tokenizer loaded")
-    # Reconstruct repo_root and data paths (mirrors _resolve_paths logic).
+    print("Starting to encode training and development data...")
+
     script_dir = Path(__file__).resolve().parent
     repo_root = script_dir.parent
-    print("Starting to encode training and development data...")
-    if (repo_root.parent / "data" / "TinyStoriesV2-GPT4-train.txt").exists():
-        train_path = repo_root.parent / "data" / "/Users/kokande/Desktop/Semester 2/Building LLM Reasoners/nyu-llm-reasoners-a1/tests/fixtures/tinystories_sample.txt"
-        valid_path = repo_root.parent / "data" / "/Users/kokande/Desktop/Semester 2/Building LLM Reasoners/nyu-llm-reasoners-a1/tests/fixtures/tinystories_sample.txt"
-        out_dir = repo_root.parent / "data"
-    else:
-        train_path = repo_root / "data" / "/Users/kokande/Desktop/Semester 2/Building LLM Reasoners/nyu-llm-reasoners-a1/tests/fixtures/tinystories_sample.txt"
-        valid_path = repo_root / "data" / "/Users/kokande/Desktop/Semester 2/Building LLM Reasoners/nyu-llm-reasoners-a1/tests/fixtures/tinystories_sample.txt"
-        out_dir = repo_root / "data"
+    data_root = (repo_root.parent / "data") if (repo_root.parent / "data").exists() else (repo_root / "data")
 
+    train_path = data_root / "TinyStoriesV2-GPT4-train.txt"
+    valid_path = data_root / "TinyStoriesV2-GPT4-valid.txt"
+    if not train_path.exists() or not valid_path.exists():
+        raise FileNotFoundError(
+            "TinyStories text files not found. Expected:\n"
+            f"- {train_path}\n"
+            f"- {valid_path}\n"
+            "Download them as described in README.md."
+        )
+
+    out_dir = data_root
     out_dir.mkdir(exist_ok=True)
 
-    def _encode_and_save(src: Path, dst_name: str) -> None:
-        with src.open("r", encoding="utf-8") as f:
-            text = f.read()
-        ids = tokenizer.encode(text)
-        ids_array = np.array(ids, dtype=np.uint16)
-        np.save(out_dir / dst_name, ids_array)
+    end_token = "<|endoftext|>"
+    end_id = int(getattr(tokenizer, "_bytes_to_id")[end_token.encode("utf-8")])
 
-    _encode_and_save(train_path, "tinystories_train_ids.npy")
-    _encode_and_save(valid_path, "tinystories_valid_ids.npy")
+    def _iter_docs(fp, delimiter: str, chunk_chars: int):
+        buf = ""
+        while True:
+            chunk = fp.read(chunk_chars)
+            if not chunk:
+                break
+            buf += chunk
+            while True:
+                idx = buf.find(delimiter)
+                if idx < 0:
+                    break
+                doc = buf[:idx]
+                yield doc, True
+                buf = buf[idx + len(delimiter) :]
+        if buf:
+            yield buf, False
+
+    def _count_ids(src: Path, chunk_chars: int) -> int:
+        total = 0
+        with src.open("r", encoding="utf-8", errors="ignore") as f:
+            for doc, had_delim in _iter_docs(f, end_token, chunk_chars=chunk_chars):
+                if doc:
+                    total += len(tokenizer.encode(doc))
+                if had_delim:
+                    total += 1
+        return total
+
+    def _write_ids(src: Path, dst: Path, n_tokens: int, chunk_chars: int) -> None:
+        arr = np.lib.format.open_memmap(dst, mode="w+", dtype=np.uint16, shape=(n_tokens,))
+        pos = 0
+        with src.open("r", encoding="utf-8", errors="ignore") as f:
+            for doc, had_delim in _iter_docs(f, end_token, chunk_chars=chunk_chars):
+                if doc:
+                    ids = tokenizer.encode(doc)
+                    n = len(ids)
+                    arr[pos : pos + n] = np.asarray(ids, dtype=np.uint16)
+                    pos += n
+                if had_delim:
+                    arr[pos] = end_id
+                    pos += 1
+        if pos != n_tokens:
+            raise RuntimeError(f"Token count mismatch for {src}: expected {n_tokens}, wrote {pos}")
+
+    chunk_chars = 8_000_000
+    train_out = out_dir / "tinystories_train_ids.npy"
+    valid_out = out_dir / "tinystories_valid_ids.npy"
+
+    print("Counting train tokens...")
+    n_train = _count_ids(train_path, chunk_chars=chunk_chars)
+    print(f"train tokens: {n_train:,}")
+
+    print("Counting valid tokens...")
+    n_valid = _count_ids(valid_path, chunk_chars=chunk_chars)
+    print(f"valid tokens: {n_valid:,}")
+
+    print(f"Writing {train_out} ...")
+    _write_ids(train_path, train_out, n_tokens=n_train, chunk_chars=chunk_chars)
+
+    print(f"Writing {valid_out} ...")
+    _write_ids(valid_path, valid_out, n_tokens=n_valid, chunk_chars=chunk_chars)
+
+    for name, path in [("train", train_out), ("valid", valid_out)]:
+        x = np.load(path, mmap_mode="r").ravel()
+        s = np.asarray(x[:1_000_000], dtype=np.int64)
+        uniq = len(np.unique(s))
+        print(f"{name} sanity: shape={tuple(x.shape)} dtype={x.dtype} min={int(x.min())} max={int(x.max())} sample_unique={uniq}")
 
 
 if __name__ == "__main__":
-    #run_basic_experiment(n_docs=10)
-    #estimate_throughput_and_pile_tokenization_time()
     encode_training_and_development_data()
 

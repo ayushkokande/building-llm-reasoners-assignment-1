@@ -61,19 +61,14 @@ class AdamW(torch.optim.Optimizer):
                 t = state["step"]
                 m, v = state["exp_avg"], state["exp_avg_sq"]
 
-                # m ← β₁m + (1-β₁)g
                 m.mul_(beta1).add_(g, alpha=1 - beta1)
-                # v ← β₂v + (1-β₂)g²
                 v.mul_(beta2).addcmul_(g, g, value=1 - beta2)
 
-                # α_t ← α √(1-β₂^t) / (1-β₁^t)  (bias correction)
                 alpha_t = lr * math.sqrt(1 - beta2**t) / (1 - beta1**t)
 
-                # θ ← θ - α_t m̂ / (√v̂ + ε)
                 denom = v.sqrt().add_(eps)
                 p.data.addcdiv_(m, denom, value=-alpha_t)
 
-                # θ ← θ - αλθ  (decoupled weight decay)
                 p.data.add_(p.data, alpha=-lr * weight_decay)
 
         return loss
