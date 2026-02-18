@@ -147,19 +147,7 @@ def run_rope(
     token_positions: torch.Tensor,
 ) -> torch.Tensor:
     rope = RotaryPositionalEmbedding(theta=theta, d_k=d_k, max_seq_len=max_seq_len, device=in_query_or_key.device)
-    *batch_dims, seq_len, _ = in_query_or_key.shape
-    if token_positions.shape[-1] != seq_len:
-        raise ValueError("token_positions must have last dimension == seq_len")
-
-    tp = token_positions.to(device=in_query_or_key.device)
-    tp_batch = list(tp.shape[:-1])
-    if len(tp_batch) > len(batch_dims):
-        raise ValueError("token_positions has too many batch dimensions")
-    if len(tp_batch) < len(batch_dims):
-        tp = tp.reshape(*tp_batch, *([1] * (len(batch_dims) - len(tp_batch))), seq_len)
-    tp = tp.expand(*batch_dims, seq_len)
-
-    return rope(in_query_or_key, tp)
+    return rope(in_query_or_key, token_positions.to(device=in_query_or_key.device))
 
 
 def run_multihead_self_attention_with_rope(
@@ -552,4 +540,3 @@ def run_train_bpe(
         merge_pair_incremental(word_freqs, pair_counts, pair_to_words, best_pair, new_token)
 
     return vocab, merges
-
