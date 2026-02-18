@@ -210,14 +210,13 @@ def run_multihead_self_attention_with_rope(
         token_positions=token_positions,
     )
 
-
 def run_rope(
     d_k: int,
     theta: float,
     max_seq_len: int,
-    in_query_or_key: Float[Tensor, " ... sequence_length d_k"],  # type: ignore
-    token_positions: Int[Tensor, " ... sequence_length"],  # type: ignore
-) -> Float[Tensor, " ... sequence_length d_k"]:  # type: ignore
+    in_query_or_key: Float[Tensor, " ... sequence_length d_k"], # type: ignore
+    token_positions: Int[Tensor, " ... sequence_length"], # type: ignore
+) -> Float[Tensor, " ... sequence_length d_k"]: # type: ignore
     """
     Run RoPE for a given input tensor.
 
