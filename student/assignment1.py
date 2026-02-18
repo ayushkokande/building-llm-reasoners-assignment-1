@@ -18,6 +18,7 @@ from student.pretokenization_example import find_chunk_boundaries
 from student.regexsplitter import RegexSplitter
 from student.rmsnorm import RMSNorm
 from student.rope import RotaryPositionalEmbedding
+from student.softmax import masked_softmax, softmax
 from student.swiglu import SwiGLU
 from student.tokenizer import PAT as GPT2_PRETOKENIZE_PATTERN
 from student.tokenizer import Tokenizer
@@ -68,30 +69,8 @@ def run_swiglu(
     return swiglu(in_features)
 
 
-def _softmax_stable(x: torch.Tensor, dim: int) -> torch.Tensor:
-    x_max = x.max(dim=dim, keepdim=True).values
-    exp = torch.exp(x - x_max)
-    return exp / exp.sum(dim=dim, keepdim=True)
-
-
-def _masked_softmax(scores: torch.Tensor, mask: torch.Tensor, dim: int = -1) -> torch.Tensor:
-    """
-    Softmax over `dim`, where mask==False entries get probability 0.
-    If a row is fully masked, returns all zeros for that row.
-    """
-    mask = mask.to(dtype=torch.bool, device=scores.device)
-    scores = scores.masked_fill(~mask, float("-inf"))
-
-    row_max = scores.max(dim=dim, keepdim=True).values
-    row_max = torch.where(torch.isfinite(row_max), row_max, torch.zeros_like(row_max))
-
-    exp = torch.exp(scores - row_max) * mask.to(dtype=scores.dtype)
-    denom = exp.sum(dim=dim, keepdim=True)
-    return torch.where(denom > 0, exp / denom, torch.zeros_like(exp))
-
-
 def run_softmax(in_features: torch.Tensor, dim: int) -> torch.Tensor:
-    return _softmax_stable(in_features, dim=dim)
+    return softmax(in_features, dim=dim)
 
 
 def run_scaled_dot_product_attention(
@@ -103,9 +82,9 @@ def run_scaled_dot_product_attention(
     d_k = Q.shape[-1]
     scores = (Q @ K.transpose(-2, -1)) / math.sqrt(d_k)
     if mask is None:
-        probs = _softmax_stable(scores, dim=-1)
+        probs = softmax(scores, dim=-1)
     else:
-        probs = _masked_softmax(scores, mask=mask, dim=-1)
+        probs = masked_softmax(scores, mask=mask, dim=-1)
     return probs @ V
 
 
