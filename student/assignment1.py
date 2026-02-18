@@ -12,6 +12,8 @@ import torch
 import torch.nn.functional as F
 
 from student.adamw import AdamW
+from student.embedding import Embedding
+from student.linear import Linear
 from student.pretokenization_example import find_chunk_boundaries
 from student.regexsplitter import RegexSplitter
 from student.rope import RotaryPositionalEmbedding
@@ -25,8 +27,9 @@ def run_linear(
     weights: torch.Tensor,
     in_features: torch.Tensor,
 ) -> torch.Tensor:
-    _ = d_in, d_out
-    return in_features @ weights.T
+    linear = Linear(in_features=d_in, out_features=d_out)
+    linear.load_state_dict({"W": weights})
+    return linear(in_features)
 
 
 def run_embedding(
@@ -35,8 +38,9 @@ def run_embedding(
     weights: torch.Tensor,
     token_ids: torch.Tensor,
 ) -> torch.Tensor:
-    _ = vocab_size, d_model
-    return weights[token_ids]
+    emb = Embedding(num_embeddings=vocab_size, embedding_dim=d_model)
+    emb.load_state_dict({"weight": weights})
+    return emb(token_ids)
 
 
 def run_silu(in_features: torch.Tensor) -> torch.Tensor:
@@ -377,17 +381,7 @@ def get_tokenizer(
     merges: list[tuple[bytes, bytes]],
     special_tokens: list[str] | None = None,
 ) -> Tokenizer:
-    vocab_out = dict(vocab)
-    if special_tokens:
-        existing = set(vocab_out.values())
-        next_id = (max(vocab_out.keys()) + 1) if vocab_out else 0
-        for st in special_tokens:
-            b = st.encode("utf-8")
-            if b not in existing:
-                vocab_out[next_id] = b
-                next_id += 1
-                existing.add(b)
-    return Tokenizer(vocab=vocab_out, merges=merges, special_tokens=special_tokens)
+    return Tokenizer(vocab=dict(vocab), merges=merges, special_tokens=special_tokens)
 
 
 def pre_tokenize(

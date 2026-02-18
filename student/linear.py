@@ -7,10 +7,7 @@ import torch.nn.init as init
 
 class Linear(nn.Module):
     """
-    Linear transformation module without bias.
-    
-    Performs: output = input @ W^T
-    where W is stored as (out_features, in_features) for memory efficiency.
+    Linear module
     """
 
     def __init__(
@@ -32,11 +29,5 @@ class Linear(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         Apply linear transformation: output = x @ W^T
-        
-        Args:
-            x: Input tensor of shape (..., in_features)
-            
-        Returns:
-            Output tensor of shape (..., out_features)
         """
         return x @ self.W.T

@@ -12,12 +12,7 @@ PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s
 
 class Tokenizer:
     """
-    Byte-level BPE tokenizer compatible with the vocab/merges format used
-    in this assignment (and GPT-2-style tokenization).
-
-    - `vocab` maps token id -> token bytes
-    - `merges` is an ordered list of (left_bytes, right_bytes)
-    - `special_tokens` are strings that are never split or merged
+    Byte-level BPE tokenizer 
     """
 
     def __init__(
@@ -31,6 +26,15 @@ class Tokenizer:
         self.special_tokens = special_tokens or []
 
         self._bytes_to_id: dict[bytes, int] = {token_bytes: tid for tid, token_bytes in vocab.items()}
+
+        if self.special_tokens:
+            next_id = max(self.vocab.keys()) + 1 if self.vocab else 0
+            for st in self.special_tokens:
+                b = st.encode("utf-8")
+                if b not in self._bytes_to_id:
+                    self.vocab[next_id] = b
+                    self._bytes_to_id[b] = next_id
+                    next_id += 1
 
         self._token_re = re.compile(PAT)
 
@@ -107,8 +111,7 @@ class Tokenizer:
 
     def decode(self, ids: list[int]) -> str:
         """
-        Decode a sequence of token IDs back into text(UTF-8 string) by
-        concatenating their byte values.
+        Decode a sequence of token IDs back into text(UTF-8 string)
         """
         byte_seq = b"".join(self.vocab[i] for i in ids)
         return byte_seq.decode("utf-8", errors="replace")
