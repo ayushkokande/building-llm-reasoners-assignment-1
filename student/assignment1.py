@@ -16,7 +16,9 @@ from student.embedding import Embedding
 from student.linear import Linear
 from student.pretokenization_example import find_chunk_boundaries
 from student.regexsplitter import RegexSplitter
+from student.rmsnorm import RMSNorm
 from student.rope import RotaryPositionalEmbedding
+from student.swiglu import SwiGLU
 from student.tokenizer import PAT as GPT2_PRETOKENIZE_PATTERN
 from student.tokenizer import Tokenizer
 
@@ -55,10 +57,15 @@ def run_swiglu(
     w3_weight: torch.Tensor,
     in_features: torch.Tensor,
 ) -> torch.Tensor:
-    _ = d_model, d_ff
-    up = in_features @ w1_weight.T
-    gate = in_features @ w3_weight.T
-    return (F.silu(up) * gate) @ w2_weight.T
+    swiglu = SwiGLU(d_model=d_model, d_ff=d_ff, device=in_features.device, dtype=w1_weight.dtype)
+    swiglu.load_state_dict(
+        {
+            "w1.W": w1_weight.to(device=in_features.device),
+            "w2.W": w2_weight.to(device=in_features.device),
+            "w3.W": w3_weight.to(device=in_features.device),
+        }
+    )
+    return swiglu(in_features)
 
 
 def _softmax_stable(x: torch.Tensor, dim: int) -> torch.Tensor:
@@ -195,12 +202,9 @@ def run_multihead_self_attention_with_rope(
 
 
 def run_rmsnorm(d_model: int, eps: float, weights: torch.Tensor, in_features: torch.Tensor) -> torch.Tensor:
-    _ = d_model
-    orig_dtype = in_features.dtype
-    x = in_features.to(torch.float32)
-    rms = torch.sqrt(x.pow(2).mean(dim=-1, keepdim=True) + eps)
-    y = (x / rms) * weights.to(torch.float32)
-    return y.to(orig_dtype)
+    norm = RMSNorm(d_model=d_model, eps=eps, device=in_features.device, dtype=weights.dtype)
+    norm.load_state_dict({"weight": weights.to(device=in_features.device)})
+    return norm(in_features)
 
 
 def run_transformer_block(

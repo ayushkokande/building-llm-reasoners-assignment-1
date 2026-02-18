@@ -57,10 +57,10 @@ def run_embedding(
 def run_swiglu(
     d_model: int,
     d_ff: int,
-    w1_weight: Float[Tensor, "d_ff d_model"],  # type: ignore
-    w2_weight: Float[Tensor, "d_model d_ff"],  # type: ignore
-    w3_weight: Float[Tensor, "d_ff d_model"],  # type: ignore
-    in_features: Float[Tensor, " ... d_model"],  # type: ignore
+    w1_weight: Float[Tensor, " d_ff d_model"],# type: ignore
+    w2_weight: Float[Tensor, " d_model d_ff"], # type: ignore
+    w3_weight: Float[Tensor, " d_ff d_model"], # type: ignore
+    in_features: Float[Tensor, " ... d_model"], # type: ignore
 ) -> Float[Tensor, " ... d_model"]:  # type: ignore
     """Given the weights of a SwiGLU network, return
     the output of your implementation with these weights.
@@ -408,9 +408,9 @@ def run_transformer_lm(
 def run_rmsnorm(
     d_model: int,
     eps: float,
-    weights: Float[Tensor, "d_model"],  # type: ignore
-    in_features: Float[Tensor, " ... d_model"],  # type: ignore
-) -> Float[Tensor, " ... d_model"]:  # type: ignore
+    weights: Float[Tensor, " d_model"],  # type: ignore
+    in_features: Float[Tensor, " ... d_model"], # type: ignore
+) -> Float[Tensor, " ... d_model"]: # type: ignore
     """Given the weights of a RMSNorm affine transform,
     return the output of running RMSNorm on the input features.
 

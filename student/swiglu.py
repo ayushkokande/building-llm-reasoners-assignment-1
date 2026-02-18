@@ -10,11 +10,6 @@ class SwiGLU(nn.Module):
     """
     SwiGLU feed-forward network: SwiGLU(x) = (SiLU(x @ W1) * (x @ W3)) @ W2
     
-    Where:
-    - W1: up-project (d_ff, d_model)
-    - W3: gate projection (d_ff, d_model)
-    - W2: down-project (d_model, d_ff)
-    - SiLU(x) = x * sigmoid(x)
     """
 
     def __init__(
@@ -28,14 +23,8 @@ class SwiGLU(nn.Module):
         self.d_model = d_model
         self.d_ff = d_ff
 
-        # Three linear layers for SwiGLU
-        # W1: up-project from d_model to d_ff
-        #rows-> d_ff, columns-> d_model
         self.w1 = Linear(d_model, d_ff, device=device, dtype=dtype)
-        # W3: gate projection from d_model to d_ff
         self.w3 = Linear(d_model, d_ff, device=device, dtype=dtype)
-        #rows-> d_model, columns-> d_ff
-        # W2: down-project from d_ff to d_model
         self.w2 = Linear(d_ff, d_model, device=device, dtype=dtype)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -48,17 +37,12 @@ class SwiGLU(nn.Module):
         Returns:
             Output tensor of shape (..., d_model)
         """
-        # Up-project: x @ W1.T -> (..., d_ff)
         up = self.w1(x)
         
-        # Gate projection: x @ W3.T -> (..., d_ff)
         gate = self.w3(x)
         
-        # Apply SiLU to up and multiply by gate
-        # SiLU(x) = x * sigmoid(x)
         activated = up * torch.sigmoid(up) * gate
         
-        # Down-project: activated @ W2.T -> (..., d_model)
         output = self.w2(activated)
         
         return output
