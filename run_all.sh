@@ -6,14 +6,23 @@
 #   bash run_all.sh
 #
 # Override defaults via env vars, e.g.:
-#   VOCAB_SIZE=10000 MAX_ITERS=50000 NPROC=16 bash run_all.sh
+#   MAX_ITERS=50000 CTX=256 BATCH=64 bash run_all.sh
+#   D_MODEL=256 LAYERS=4 HEADS=4 D_FF=512 bash run_all.sh   # smaller/faster
+#
+# Defaults below = the "great" config: 100k iters, ctx 256, batch 64,
+# ~25M-param model (d_model 512 / 6 layers). ~1.6B tokens seen (~2.8 epochs).
 
 set -euo pipefail
 
 VOCAB_SIZE="${VOCAB_SIZE:-10000}"
-MAX_ITERS="${MAX_ITERS:-50000}"
+MAX_ITERS="${MAX_ITERS:-100000}"
 NPROC="${NPROC:-$(nproc 2>/dev/null || echo 8)}"
 CTX="${CTX:-256}"
+BATCH="${BATCH:-64}"
+D_MODEL="${D_MODEL:-512}"
+LAYERS="${LAYERS:-6}"
+HEADS="${HEADS:-8}"
+D_FF="${D_FF:-1344}"
 ART="${ART:-artifacts}"
 DATA="${DATA:-data}"
 DEVICE="${DEVICE:-cuda}"
@@ -22,7 +31,8 @@ TRAIN_TXT="$DATA/TinyStoriesV2-GPT4-train.txt"
 VAL_TXT="$DATA/TinyStoriesV2-GPT4-valid.txt"
 BASE="https://huggingface.co/datasets/roneneldan/TinyStories/resolve/main"
 
-echo "==> Config: vocab=$VOCAB_SIZE iters=$MAX_ITERS nproc=$NPROC ctx=$CTX device=$DEVICE"
+echo "==> Config: vocab=$VOCAB_SIZE iters=$MAX_ITERS ctx=$CTX batch=$BATCH"
+echo "           d_model=$D_MODEL layers=$LAYERS heads=$HEADS d_ff=$D_FF nproc=$NPROC device=$DEVICE"
 
 echo "==> [0/4] Sync deps"
 uv sync
@@ -52,7 +62,8 @@ echo "==> [2/4] Tokenize train + val -> .npy"
 echo "==> [3/4] Train Transformer LM"
 uv run python -m student.train \
   --train_data "$ART/train.npy" --val_data "$ART/val.npy" \
-  --vocab_size "$VOCAB_SIZE" --context_length "$CTX" \
+  --vocab_size "$VOCAB_SIZE" --context_length "$CTX" --batch_size "$BATCH" \
+  --d_model "$D_MODEL" --num_layers "$LAYERS" --num_heads "$HEADS" --d_ff "$D_FF" \
   --max_iters "$MAX_ITERS" --cosine_cycle_iters "$MAX_ITERS" \
   --checkpoint_dir "$ART/checkpoints" --device "$DEVICE"
 
