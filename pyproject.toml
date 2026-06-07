@@ -6,6 +6,7 @@ requires-python = ">=3.11,<3.14"
 dependencies = [
     "einops>=0.8.1", # tensor operations
     "einx>=0.3.0", # more general tensor operations
+    "gradio>=4.44.0", # web UI for the text-generation playground
     "jaxtyping>=0.3.0", # type hints for pytorch/jax/numpy
     "numpy<2",
     "psutil>=6.1.1",
