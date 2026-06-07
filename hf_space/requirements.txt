@@ -1,0 +1,3 @@
+torch>=2.2
+numpy<2
+regex>=2024.11.6
