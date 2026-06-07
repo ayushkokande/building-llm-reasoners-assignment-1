@@ -23,6 +23,7 @@ D_MODEL="${D_MODEL:-512}"
 LAYERS="${LAYERS:-6}"
 HEADS="${HEADS:-8}"
 D_FF="${D_FF:-1344}"
+CHECKPOINT_EVERY="${CHECKPOINT_EVERY:-5000}"
 ART="${ART:-artifacts}"
 DATA="${DATA:-data}"
 DEVICE="${DEVICE:-cuda}"
@@ -32,7 +33,7 @@ VAL_TXT="$DATA/TinyStoriesV2-GPT4-valid.txt"
 BASE="https://huggingface.co/datasets/roneneldan/TinyStories/resolve/main"
 
 echo "==> Config: vocab=$VOCAB_SIZE iters=$MAX_ITERS ctx=$CTX batch=$BATCH"
-echo "           d_model=$D_MODEL layers=$LAYERS heads=$HEADS d_ff=$D_FF nproc=$NPROC device=$DEVICE"
+echo "           d_model=$D_MODEL layers=$LAYERS heads=$HEADS d_ff=$D_FF ckpt_every=$CHECKPOINT_EVERY nproc=$NPROC device=$DEVICE"
 
 echo "==> [0/4] Sync deps"
 uv sync
@@ -65,10 +66,11 @@ uv run python -m student.train \
   --vocab_size "$VOCAB_SIZE" --context_length "$CTX" --batch_size "$BATCH" \
   --d_model "$D_MODEL" --num_layers "$LAYERS" --num_heads "$HEADS" --d_ff "$D_FF" \
   --max_iters "$MAX_ITERS" --cosine_cycle_iters "$MAX_ITERS" \
+  --checkpoint_every "$CHECKPOINT_EVERY" \
   --checkpoint_dir "$ART/checkpoints" --device "$DEVICE"
 
 echo "==> [4/4] Sample from final checkpoint"
-CKPT="$ART/checkpoints/checkpoint_${MAX_ITERS}.pt"
+CKPT="$(ls -1 "$ART"/checkpoints/checkpoint_*.pt 2>/dev/null | sort -t_ -k2 -n | tail -1)"
 uv run python -m student.decode \
   --checkpoint "$CKPT" --vocab_json "$ART/vocab.json" --merges_txt "$ART/merges.txt" \
   --prompt "Once upon a time" --max_new_tokens 200 --temperature 0.8 --top_p 0.95 \
