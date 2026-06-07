@@ -17,6 +17,7 @@ Example (run on the pod after training, or locally with artifacts/):
 from __future__ import annotations
 
 import argparse
+import os
 
 import gradio as gr
 import torch
@@ -127,23 +128,33 @@ def build_ui() -> gr.Blocks:
 
 
 def parse_args() -> argparse.Namespace:
+    # Defaults resolve from env vars, then a local `model/` dir. This lets the
+    # same file run arg-free on HuggingFace Spaces (which just runs `python app.py`)
+    # and with explicit paths on the pod / locally.
+    model_dir = os.environ.get("MODEL_DIR", "model")
     p = argparse.ArgumentParser(description="Gradio playground for a trained Transformer LM.")
-    p.add_argument("--checkpoint", type=str, required=True, help="Path to checkpoint .pt")
-    p.add_argument("--vocab_json", type=str, required=True, help="vocab.json from train_bpe.py")
-    p.add_argument("--merges_txt", type=str, required=True, help="merges.txt from train_bpe.py")
+    p.add_argument("--checkpoint", type=str, default=os.environ.get("MODEL_CKPT", f"{model_dir}/model.pt"))
+    p.add_argument("--vocab_json", type=str, default=os.environ.get("VOCAB_JSON", f"{model_dir}/vocab.json"))
+    p.add_argument("--merges_txt", type=str, default=os.environ.get("MERGES_TXT", f"{model_dir}/merges.txt"))
     p.add_argument("--end_token", type=str, default="<|endoftext|>", help="Stop token (if in vocab)")
     p.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
     p.add_argument("--host", type=str, default="0.0.0.0", help="Bind address (0.0.0.0 for RunPod proxy)")
     p.add_argument("--port", type=int, default=7860, help="Port to serve on")
     p.add_argument("--share", action="store_true", help="Create a public gradio.live link")
-    return p.parse_args()
+    args, _ = p.parse_known_args()  # ignore extra args injected by the Spaces runtime
+    return args
 
 
 def main() -> None:
     args = parse_args()
     load_model(args.checkpoint, args.vocab_json, args.merges_txt, args.end_token, args.device)
     demo = build_ui()
-    demo.queue().launch(server_name=args.host, server_port=args.port, share=args.share)
+
+    if os.environ.get("SPACE_ID"):
+        # On HuggingFace Spaces: let the platform set host/port, no public-link tunnel.
+        demo.queue().launch()
+    else:
+        demo.queue().launch(server_name=args.host, server_port=args.port, share=args.share)
 
 
 if __name__ == "__main__":
