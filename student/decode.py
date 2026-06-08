@@ -21,7 +21,11 @@ from student.lm import TransformerLM
 from student.tokenizer import Tokenizer
 
 
-def _infer_hparams_from_state_dict(state: dict[str, torch.Tensor]) -> dict[str, int]:
+def _infer_hparams_from_state_dict(
+    state: dict[str, torch.Tensor],
+    context_length: int | None = None,
+    num_heads: int | None = None,
+) -> dict[str, int]:
     vocab_size, d_model = state["token_embeddings.weight"].shape
 
     layer_ids = []
@@ -32,11 +36,23 @@ def _infer_hparams_from_state_dict(state: dict[str, torch.Tensor]) -> dict[str, 
                 layer_ids.append(int(parts[1]))
     num_layers = (max(layer_ids) + 1) if layer_ids else 0
 
-    rope_cos_key = next(k for k in state.keys() if k.endswith("rope.cos"))
-    cos = state[rope_cos_key]
-    context_length = int(cos.shape[0])
-    head_dim = int(cos.shape[1]) * 2
-    num_heads = int(d_model // head_dim) if head_dim > 0 else 1
+    # RoPE cos/sin are registered as non-persistent buffers, so they may be
+    # absent from the checkpoint. When present, infer context_length/num_heads
+    # from cos's shape; otherwise the caller must supply them explicitly.
+    rope_cos_key = next((k for k in state.keys() if k.endswith("rope.cos")), None)
+    if rope_cos_key is not None:
+        cos = state[rope_cos_key]
+        if context_length is None:
+            context_length = int(cos.shape[0])
+        if num_heads is None:
+            head_dim = int(cos.shape[1]) * 2
+            num_heads = int(d_model // head_dim) if head_dim > 0 else 1
+    if context_length is None or num_heads is None:
+        raise ValueError(
+            "Checkpoint has no 'rope.cos' buffer (saved with persistent=False), so "
+            "context_length and num_heads cannot be inferred. Pass them explicitly "
+            "(e.g. --context_length 256 --num_heads 8)."
+        )
 
     w1_key = next(k for k in state.keys() if k.endswith("ffn.w1.W"))
     d_ff = int(state[w1_key].shape[0])
@@ -93,6 +109,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--temperature", type=float, default=1.0, help="Softmax temperature (0 = greedy)")
     p.add_argument("--top_p", type=float, default=1.0, help="Top-p / nucleus sampling threshold (1.0 = disabled)")
     p.add_argument("--end_token", type=str, default="<|endoftext|>", help="Stop generation when this token is produced (if in vocab)")
+    p.add_argument("--context_length", type=int, default=None, help="Override (needed if checkpoint lacks rope.cos buffer)")
+    p.add_argument("--num_heads", type=int, default=None, help="Override (needed if checkpoint lacks rope.cos buffer)")
     p.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
     return p.parse_args()
 
@@ -116,7 +134,7 @@ def main() -> None:
     state = ckpt["model"] if isinstance(ckpt, dict) and "model" in ckpt else ckpt
     assert isinstance(state, dict), "Checkpoint must be a state_dict or a dict containing 'model'"
 
-    h = _infer_hparams_from_state_dict(state)
+    h = _infer_hparams_from_state_dict(state, context_length=args.context_length, num_heads=args.num_heads)
     model = TransformerLM(**h).to(device)
     model.load_state_dict(state)
     model.eval()

@@ -37,7 +37,15 @@ END_ID: int | None = None
 DEVICE: str = "cpu"
 
 
-def load_model(checkpoint: str, vocab_json: str, merges_txt: str, end_token: str, device: str) -> None:
+def load_model(
+    checkpoint: str,
+    vocab_json: str,
+    merges_txt: str,
+    end_token: str,
+    device: str,
+    context_length: int | None = None,
+    num_heads: int | None = None,
+) -> None:
     """Load tokenizer + model into module globals. Hparams inferred from the checkpoint."""
     global MODEL, TOKENIZER, END_ID, DEVICE
     DEVICE = device
@@ -53,7 +61,7 @@ def load_model(checkpoint: str, vocab_json: str, merges_txt: str, end_token: str
     state = ckpt["model"] if isinstance(ckpt, dict) and "model" in ckpt else ckpt
     assert isinstance(state, dict), "Checkpoint must be a state_dict or a dict containing 'model'"
 
-    h = _infer_hparams_from_state_dict(state)
+    h = _infer_hparams_from_state_dict(state, context_length=context_length, num_heads=num_heads)
     model = TransformerLM(**h).to(device)
     model.load_state_dict(state)
     model.eval()
@@ -137,6 +145,10 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--vocab_json", type=str, default=os.environ.get("VOCAB_JSON", f"{model_dir}/vocab.json"))
     p.add_argument("--merges_txt", type=str, default=os.environ.get("MERGES_TXT", f"{model_dir}/merges.txt"))
     p.add_argument("--end_token", type=str, default="<|endoftext|>", help="Stop token (if in vocab)")
+    # Needed because RoPE buffers are non-persistent, so the checkpoint can't
+    # report context_length / num_heads. Defaults match run_all.sh's config.
+    p.add_argument("--context_length", type=int, default=int(os.environ.get("CONTEXT_LENGTH", "256")))
+    p.add_argument("--num_heads", type=int, default=int(os.environ.get("NUM_HEADS", "8")))
     p.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
     p.add_argument("--host", type=str, default="0.0.0.0", help="Bind address (0.0.0.0 for RunPod proxy)")
     p.add_argument("--port", type=int, default=7860, help="Port to serve on")
@@ -147,7 +159,15 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    load_model(args.checkpoint, args.vocab_json, args.merges_txt, args.end_token, args.device)
+    load_model(
+        args.checkpoint,
+        args.vocab_json,
+        args.merges_txt,
+        args.end_token,
+        args.device,
+        context_length=args.context_length,
+        num_heads=args.num_heads,
+    )
     demo = build_ui()
 
     if os.environ.get("SPACE_ID"):
