@@ -118,7 +118,7 @@ def build_ui() -> gr.Blocks:
                 temperature = gr.Slider(0.0, 1.5, value=0.8, step=0.05, label="Temperature (0 = greedy)")
                 top_p = gr.Slider(0.1, 1.0, value=0.95, step=0.05, label="Top-p (1.0 = off)")
 
-        output = gr.Textbox(label="Generated text", lines=14, show_copy_button=True)
+        output = gr.Textbox(label="Generated text", lines=14)
 
         inputs = [prompt, max_new_tokens, temperature, top_p]
         generate_btn.click(fn=generate, inputs=inputs, outputs=output)
