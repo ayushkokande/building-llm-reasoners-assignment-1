@@ -171,8 +171,10 @@ def main() -> None:
     demo = build_ui()
 
     if os.environ.get("SPACE_ID"):
-        # On HuggingFace Spaces: let the platform set host/port, no public-link tunnel.
-        demo.queue().launch()
+        # On HuggingFace Spaces: bind 0.0.0.0:7860 explicitly. Relying on
+        # gradio's auto-detection can trip a "localhost not accessible" check
+        # in the container, so we set host/port and skip the public-link tunnel.
+        demo.queue().launch(server_name="0.0.0.0", server_port=7860)
     else:
         demo.queue().launch(server_name=args.host, server_port=args.port, share=args.share)
 
