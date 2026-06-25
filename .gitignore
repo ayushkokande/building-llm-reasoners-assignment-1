@@ -164,3 +164,8 @@ cython_debug/
 # Trained model outputs (kept local; too large for GitHub)
 artifacts/
 data/
+model.pt
+checkpoints/
+*.pt
+# keep small graded test fixtures
+!tests/**/*.pt
