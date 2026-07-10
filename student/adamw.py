@@ -1,6 +1,6 @@
 """
 AdamW optimizer implementation.
-Algorithm 1 from the assignment: Adam with decoupled weight decay.
+Adam with decoupled weight decay (Loshchilov & Hutter, 2019).
 """
 
 import math

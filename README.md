@@ -1,10 +1,8 @@
-# NYU Building LLM Reasoners Assignment 1: Basics
+# Transformer Language Model from Scratch
 
-This assignment is adapted from Stanford CS336 ([original repository](https://github.com/stanford-cs336/)). All credit for its
-development goes to the Stanford course staff. This README and all of the following code are adapted from theirs.
+A from-scratch Transformer language model — byte-level BPE tokenizer, RoPE, SwiGLU, RMSNorm, and AdamW, all implemented without Hugging Face `transformers` — trained on the TinyStories dataset.
 
-For a full description of the assignment, see the assignment handout at 
-[a1.pdf](https://gregdurrett.github.io/courses/sp2026/a1.pdf)
+Project scaffolding and test suite adapted from Stanford CS336 ([original repository](https://github.com/stanford-cs336/)); credit to the Stanford course staff.
 
 ## Setup
 
@@ -26,8 +24,7 @@ and the environment will be automatically solved and activated when necessary.
 uv run pytest
 ```
 
-Initially, all tests should fail with `NotImplementedError`s.
-To connect your implementation to the tests, complete the
+The tests are wired to the implementation through the adapter
 functions in [./tests/adapters.py](./tests/adapters.py).
 
 ### Download data

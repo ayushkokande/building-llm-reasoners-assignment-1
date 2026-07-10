@@ -21,7 +21,7 @@ import json
 import time
 from pathlib import Path
 
-from student.assignment1 import run_train_bpe
+from student.core import run_train_bpe
 
 
 def parse_args() -> argparse.Namespace:

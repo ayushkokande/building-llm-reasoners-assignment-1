@@ -1,7 +1,7 @@
 # Deploy the playground to HuggingFace Spaces (free, permanent, embeddable)
 
 End result: a permanent URL `https://<you>-tinystories-lm.hf.space` you can
-iframe into your portfolio. Free CPU tier — the model is ~25M params, fast
+iframe into your portfolio. Free CPU tier — the model is ~28.9M params, fast
 enough on CPU.
 
 ## 0. Prereqs

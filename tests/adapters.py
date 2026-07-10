@@ -9,7 +9,7 @@ import torch
 from jaxtyping import Bool, Float, Int
 from torch import Tensor
 
-from student import assignment1 as impl
+from student import core as impl
 
 
 def run_linear(

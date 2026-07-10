@@ -12,7 +12,7 @@ import numpy as np
 import numpy.typing as npt
 import torch
 
-from student.assignment1 import (
+from student.core import (
     get_adamw_cls,
     run_cross_entropy,
     run_get_batch,

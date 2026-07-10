@@ -169,3 +169,10 @@ checkpoints/
 *.pt
 # keep small graded test fixtures
 !tests/**/*.pt
+
+# Local-only files
+.DS_Store
+*.bak
+.claude/
+Ayush_Kokande_resume_t.pdf
+writeup.pdf

@@ -3,7 +3,7 @@ from __future__ import annotations
 import torch
 import torch.nn as nn
 
-from student.assignment1 import run_scaled_dot_product_attention
+from student.core import run_scaled_dot_product_attention
 from student.embedding import Embedding
 from student.linear import Linear
 from student.rmsnorm import RMSNorm

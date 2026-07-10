@@ -10,7 +10,7 @@
 #   D_MODEL=256 LAYERS=4 HEADS=4 D_FF=512 bash run_all.sh   # smaller/faster
 #
 # Defaults below = the "great" config: 100k iters, ctx 256, batch 64,
-# ~25M-param model (d_model 512 / 6 layers). ~1.6B tokens seen (~2.8 epochs).
+# ~28.9M-param model (d_model 512 / 6 layers). ~1.6B tokens seen (~3 epochs).
 
 set -euo pipefail
 
